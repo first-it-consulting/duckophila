@@ -1,4 +1,4 @@
-"""The fly brain, wired to a duck. Steps 1-3 of `docs/ideas/fly-brain.md`.
+"""The fly brain, wired to a duck. Stages 1-4 of microduck's `docs/ideas/fly-brain.md`.
 
     .venv/bin/python -I bridge.py              # startle only (step 1), with the live brain view
     .venv/bin/python -I bridge.py --steer head  # and the head optomotor reflex (step 2) — needs the camera

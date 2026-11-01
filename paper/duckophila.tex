@@ -41,7 +41,8 @@ the target pathway steers only for targets below the eye's equator, and more wea
 The model's mushroom body, in contrast, has no input-specific code: any input that reaches it recruits
 the same two-thirds of its Kenyon cells, through a runaway that starts in the antennal lobe. With
 cue codes, a dopamine plasticity rule and a valence readout supplied by us, the robot learns to
-approach whichever of two targets it was petted for (4 of 6 runs; the other, 0 of 6). To run the model in closed loop we reimplemented it as a stepped
+approach whichever of two targets it was petted for (4 of 6 runs; the other, 0 of 6). The brain can
+also drive the robot from a laptop over WebRTC, with every camera frame dated on the robot's clock. To run the model in closed loop we reimplemented it as a stepped
 simulator that reproduces the reference Brian2 implementation spike for spike and runs faster than real
 time on one CPU core, using an exact closed-form bound that lets neurons unable to fire before their next
 input remain unsimulated. We report what the connectome contributes, what our hand-written sensory and
@@ -516,7 +517,9 @@ pairing-specific change through to behaviour and fail to when rewired. Why the r
 antennal lobe runs away---one shared synaptic weight, no graded inhibition, excitatory
 neuromodulators---is a question for the model, and a prerequisite for using it to study learning.
 
-Natural next steps are the physical robot, with the brain on a laptop and the robot's camera streamed over WebRTC. Related efforts embody
+The natural next step is the physical robot. The path to it is in place: the brain on a laptop,
+reaching the robot over the WebRTC session it publishes, with frames dated on the robot's clock
+(Methods); what remains is to measure the real camera's delay, as was done in simulation. Related efforts embody
 connectome-constrained or neuromechanical fly models in simulated bodies \cite{lobato2022,vaxenburg2025};
 here the body is a different animal's, and the interesting part is the translation between them.
 

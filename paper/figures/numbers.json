@@ -29,5 +29,7 @@
  "camera only|world turns right|DNa02|left": 5.333333333333333,
  "camera only|world turns right|DNa02|right": 16.333333333333336,
  "camera only|world turns right|DNp15|left": 0.0,
- "camera only|world turns right|DNp15|right": 85.66666666666667
+ "camera only|world turns right|DNp15|right": 85.66666666666667,
+ "follow_dna02_corr": 0.9428105653991073,
+ "follow_dna02_rank": 3
 }
