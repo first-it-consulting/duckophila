@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="media/duckophila.mp4"><img src="media/hero.gif" alt="Left: a microduck in MuJoCo; right: the fruit-fly brain driving it, every neuron at its real position, lit when it spikes" width="100%"></a>
-  <br><sub><b><a href="media/duckophila.mp4">Watch the full minute (MP4)</a></b> — a ball thrown at the duck fires the fly's escape neuron (red rings); in a turning striped drum, the fly's motion detectors light up in both optic lobes (blue) and its head neuron steers the duck. Everything on the right is the recorded spikes of the real connectome; nothing is animated by hand.</sub>
+  <br><sub><b><a href="media/duckophila.mp4">Watch the full minute (MP4)</a></b> · <b><a href="https://huggingface.co/spaces/HW01/duckophila">on Hugging Face</a></b> — a ball thrown at the duck fires the fly's escape neuron (red rings); in a turning striped drum, the fly's motion detectors light up in both optic lobes (blue) and its head neuron steers the duck. Everything on the right is the recorded spikes of the real connectome; nothing is animated by hand.</sub>
 </p>
 
 Duckophila runs the complete wiring diagram of an adult *Drosophila* brain — FlyWire's
