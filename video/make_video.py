@@ -186,7 +186,7 @@ def learn_panel(canvas, tr, j, T, phases):
 
 
 def render(sim_npz: Path, trace_npz: Path, caption: str, out: Path, scene: Path, overhead: bool = False,
-           rows: str = 'reflex', speed: float = 1.0, phases: list | None = None):
+           rows: str = 'reflex', speed: float = 1.0, phases: list | None = None, skip: float = 0.0):
     s, tr = np.load(sim_npz), np.load(trace_npz, allow_pickle=False)
     sim = Sim(scene, overhead)
     from flysim import DATA
@@ -195,7 +195,7 @@ def render(sim_npz: Path, trace_npz: Path, caption: str, out: Path, scene: Path,
     brain = Brain(ids, (W // 2 + 30, 90, W // 2 - 60, 640))
     brain.idx = {n: [int(np.flatnonzero(ids == f)[0]) for f in N.ids(n)] for n in ('DNp01', 'DNp15')}
     offs = np.concatenate([[0], np.cumsum(tr['spk_n'])])
-    t0, t1 = max(s['t'][0], tr['t'][0]), min(s['t'][-1], tr['t'][-1])
+    t0, t1 = max(s['t'][0], tr['t'][0]) + skip, min(s['t'][-1], tr['t'][-1])
     n = int((t1 - t0) * FPS / speed)
     tmp = out.with_suffix('.raw.mp4')
     vw = cv2.VideoWriter(str(tmp), cv2.VideoWriter_fourcc(*'mp4v'), FPS, (W, H))
@@ -258,10 +258,8 @@ def title_card(out: Path, lines: list[tuple[str, float]], seconds: float = 3.5):
 def main():
     d = Path(sys.argv[1] if len(sys.argv) > 1 else 'demo')
     scene = HERE / 'sim' / '.scenes' / 'scene_backlash_prop.xml'
-    parts = []
-    title_card(d / 'v0.mp4', [('Duckophila', 2.0), ("a fruit fly's brain, driving a microduck", 1.0),
-                              ('FlyWire connectome  -  Shiu et al. brain model  -  microduck by Pollen Robotics / Hugging Face', 0.6)])
-    parts.append(d / 'v0.mp4')
+    parts = []   # straight into act 1: the first seconds are what decides whether anyone watches
+    # act 1 skips its first 2.5 s — the duck standing before the first throw: the ball is in by 1 s
     acts = [('startle', "Act 1 - a ball thrown at the face: the fly's looming detectors fire its escape neuron", False, 'reflex', 1.0),
             ('arena', 'Act 2 - a striped drum turns: the head follows it (DNp15), the walking body follows the head', True, 'reflex', 1.0),
             ('follow', "Act 3 - a small target on the floor: the fly's object detectors (LC10a) steer it through DNa02", True, 'follow', 1.0),
@@ -273,8 +271,14 @@ def main():
             ph = d / f'{name}_phases.json'
             phases = json.loads(ph.read_text()) if ph.exists() else None
             print(f'rendering {name}', flush=True)
-            render(d / f'{name}_sim.npz', d / f'{name}_trace.npz', cap, out, scene, overhead, rows, speed, phases)
+            render(d / f'{name}_sim.npz', d / f'{name}_trace.npz', cap, out, scene, overhead, rows, speed, phases,
+                   skip=2.5 if name == 'startle' else 0.0)
             parts.append(out)
+    # the title at the end, with where to find it
+    title_card(d / 'v9.mp4', [('Duckophila', 2.0), ("a fruit fly's brain, driving a microduck", 1.0),
+                              ('FlyWire connectome  -  Shiu et al. brain model  -  microduck by Pollen Robotics / Hugging Face', 0.6),
+                              ('github.com/first-it-consulting/duckophila', 0.8)], seconds=4.0)
+    parts.append(d / 'v9.mp4')
     lst = d / 'parts.txt'
     lst.write_text(''.join(f"file '{p.name}'\n" for p in parts))
     subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-f', 'concat', '-safe', '0', '-i', str(lst), '-c', 'copy',

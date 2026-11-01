@@ -26,7 +26,7 @@ plt.rcParams.update({'font.size': 8, 'axes.spines.top': False, 'axes.spines.righ
 
 def fig_frames():
     """Figure 1: two frames of the published video (a startle; the arena)."""
-    for name, t in (('frame_startle', 7.4), ('frame_arena', 45.0)):
+    for name, t in (('frame_startle', 1.4), ('frame_arena', 39.0)):   # the video opens on act 1, title at the end
         subprocess.run(['ffmpeg', '-v', 'error', '-y', '-ss', str(t), '-i', str(ROOT / 'media' / 'duckophila.mp4'),
                         '-frames:v', '1', '-q:v', '3', str(OUT / f'{name}.jpg')], check=True)
 
