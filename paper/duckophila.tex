@@ -31,10 +31,13 @@ column map. Motor commands are read out from identified descending neurons. With
 connectome, the model (i) fires its giant fibre (DNp01) to objects approaching the robot's face (19 of
 20 throws in closed loop), and (ii) produces a syndirectional optomotor response in DNp15/DNHS1 that turns
 the robot's head---and, through a coupling rule of ours, its walking body---with a rotating striped drum,
-at a closed-loop gain of 0.28 [0.24, 0.32]. Both require the wiring: a degree-preserving rewired
-connectome with the same neurons and weights produces neither (0 of 20; gain 0.00). Further controls show
+at a closed-loop gain of 0.28 [0.24, 0.32], and (iii) turns the walking robot toward a small target
+through LC10a, the anterior optic tubercle and DNa02, keeping up with a target led \SI{90}{\degree} each
+way in 5 of 8 runs (heading gain 1.00). All three require the wiring: a degree-preserving rewired
+connectome with the same neurons and weights produces none (0 of 20; gain 0.00; 0 of 8). Further controls show
 that DNp15 is the strongest rotation-following neuron of 383 paired descending neuron types, while the
-escape response is only partly specific to the looming detectors and only weakly lateralised. To run the model in closed loop we reimplemented it as a stepped
+escape response is only partly specific to the looming detectors and only weakly lateralised, and that
+the target pathway steers only for targets below the eye's equator, and more weakly to the right. To run the model in closed loop we reimplemented it as a stepped
 simulator that reproduces the reference Brian2 implementation spike for spike and runs faster than real
 time on one CPU core, using an exact closed-form bound that lets neurons unable to fire before their next
 input remain unsimulated. We report what the connectome contributes, what our hand-written sensory and
@@ -82,6 +85,7 @@ Which neurons respond to looming, which to rotation & Camera $\rightarrow$ optic
 That the giant fibre fires (and more reliably for LPLC2/LC4 input) & The shape of the startle (sound, gaze, crouch, step back) \\
 The sign and size of the DNp15/DNa02 left--right difference & Gains, smoothing, clamps; the body following the head \\
 Where each T4/T5 looks (FlyWire columns); front and up, from the wiring & Approach-speed gate; efference copies of the robot's own motion \\
+That LC10a $\rightarrow$ AOTU019/025 $\rightarrow$ DNa02 turns toward a small target, only below the equator & Target detector; bearing $\rightarrow$ LC10a rates and their dose; walking while a target is seen \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -203,6 +207,24 @@ the measured flow ($r = 0.90$) only when each frame is paired with the state at 
 (\SI{0.1}{m/s}) turns at $k \cdot$ head yaw while the head counter-rotates by the trunk's measured yaw
 rate, so gaze is held.
 
+\subsection{Following: a camera target to the small-object pathway}
+
+FlyWire's brain is female, so it lacks P1 and the courtship-pursuit circuit. It does contain the visual
+object pathway that pursuit uses: LC10a, lobula columnar neurons tuned to small moving objects
+\cite{ribeiro2018,hindmarshsten2021}, project to the anterior optic tubercle, whence AOTU019 (GABAergic,
+mostly onto the contralateral DNa02) and AOTU025 (cholinergic) reach DNa02. We locate each LC10a's
+receptive field as the synapse-weighted mean viewing direction of its inputs that lie on the column map
+(Tm20, Tm4 and others), on its own eye: 232 of 234 LC10a receive such input. The target---in simulation a
+small self-lit sphere, the only saturated object in the grey camera image, found as the largest bright blob
+after a morphological opening---gives a bearing and elevation through the pinhole model, and drives each
+LC10a at $r_{\max}\exp(-d^2/2\sigma^2)$, $d$ the angle between target and receptive field
+($r_{\max} = \SI{120}{Hz}$, $\sigma = \SI{10}{\degree}$, chosen in a dose sweep in which DNa02 is graded;
+at \SI{250}{Hz} it saturates and folds). The readout is DNa02's left--right difference, smoothed
+(\SI{0.4}{s}), as yaw rate while walking at \SI{0.1}{m/s}; with no target in view the robot stands, and the
+head is held straight so that the camera faces where the body goes. In closed loop, a target on the floor
+\SI{0.45}{m} ahead of the robot swings round it at \SI{8}{\degree/s}, \SI{90}{\degree} left, back,
+\SI{90}{\degree} right and back (\SI{65}{s}), scored from the simulator's ground truth.
+
 \section{Results}
 
 \subsection{The stepped model reproduces the reference}
@@ -306,6 +328,40 @@ whole eye.}
 \label{fig:flips}
 \end{figure}
 
+\subsection{Following}
+
+\paragraph{Open loop.} A target \SI{10}{\degree} below the eye's equator makes DNa02 turn toward it,
+graded with bearing: left minus right $-5.5$, $-1.8$, $+1.6$, $+5.3$ and \SI{+14.2}{Hz} at $-20$, $-10$,
+0, 10 and \SI{20}{\degree} (+ = left; 20 seeds; Fig.~\ref{fig:follow}). Across 383 paired descending
+neuron types the left--right difference of nine tracks the bearing ($r > 0.5$); DNa02 ranks third
+($r = 0.94$), after DNae002 and DNa16. The rewired brain gives no DNa02 response, and with the same rates
+sent to as many random other visual projection neurons the bearing dependence vanishes ($r = 0.05$). Two
+properties of the pathway shape the behaviour. It responds to targets below the equator only: the turn
+toward a target at $\pm$\SI{10}{\degree} is \SI{0}{Hz} at \SI{+5}{\degree} elevation and above, \SI{2.1}{Hz}
+at \SI{-5}{\degree} and \SIrange{3.9}{4.4}{Hz} from \SI{-10}{\degree} down; a target at the camera's height,
+which appears above the image centre, is ignored, so the target is on the floor. And it is asymmetric:
+the left eye's LC10a receptive fields lie further anterior than the right's (a target dead ahead drives
+the left population at \SI{931}{Hz} in total against \SI{782}{Hz}), so DNa02 leans left and a target to
+the right gets about a third of the turn of one to the left. Whether this asymmetry is the fly's or our
+column-to-angle approximation we cannot tell.
+
+\paragraph{Closed loop.} In 5 of 8 runs the robot kept the target in view throughout, with a heading gain
+of 1.00 and a median error of \SI{7.8}{\degree} [6.6, 9.3]. In the other three it lost the target where the
+target reversed from the leftward swing into a rightward turn, fell more than the camera's half-width
+behind and, with nothing in view, stood. The rewired brain never followed (0 of 8, 95\% CI [0.00, 0.32];
+gain $-0.01$). No run of either brain produced a startle.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/follow.pdf}
+\caption{Following. \textbf{Left:} DNa02 left minus right against the target's bearing, open loop (mean,
+95\% CI, 20 seeds), for the intact brain, the rewired brain, and the input null. \textbf{Centre:} the turn
+toward a target \SI{10}{\degree} out, against its elevation. \textbf{Right:} closed loop, the robot's
+heading against the target's for a run that kept up, one that lost the target on a right turn, and the
+rewired brain.}
+\label{fig:follow}
+\end{figure}
+
 \subsection{Controls}
 
 To ask what the connectome contributes, we repeated each experiment with brains that are wrong in one
@@ -331,7 +387,7 @@ null's 54\% [52, 56].
 \begin{table}[t]
 \centering\small
 \caption{Controls. Open loop: 20 seeds per condition (40 trials per speed across both sides); closed loop:
-20 throws through the full robot stack. 95\% Wilson (proportions) or bootstrap (means) intervals.}
+20 throws, 8 following runs, through the full robot stack. 95\% Wilson (proportions) or bootstrap (means) intervals.}
 \label{tab:controls}
 \begin{tabular}{lcccc}
 \toprule
@@ -346,16 +402,18 @@ False startle, walking at a wall \SI{0.3}{m/s} & 6/20 & 0/20 & 0/20 & 2/20 \\
 Head optomotor gain, closed loop & 0.28 [0.24, 0.32] & 0.00 & & \\
 DNp15 follows rotation (camera view) & yes, rank 1/383 & no & no & \\
 DNa02 follows rotation & whole eye only & no & no & \\
+DNa02 tracks target bearing, open loop & $r = 0.94$, rank 3/383 & $r = 0.00$ & & $r = 0.05$ \\
+Following, runs kept up, closed loop & 5/8 [0.31, 0.86] & 0/8 [0.00, 0.32] & & \\
 \bottomrule
 \end{tabular}
 \end{table}
 
 \section{Discussion}
 
-The connectome, unmodified and untrained, produced two recognisable fly behaviours when its sensory
-neurons were driven by a robot's sensors: an escape decision to fast approaching objects, and a following
-optomotor response. Neither was wired in, and both disappear when the same neurons and weights are
-rewired. Their specificity differs: the optomotor readout singles out DNp15 among hundreds of candidates,
+The connectome, unmodified and untrained, produced three recognisable fly behaviours when its sensory
+neurons were driven by a robot's sensors: an escape decision to fast approaching objects, a following
+optomotor response, and turning toward a small object. None was wired in, and all disappear when the same
+neurons and weights are rewired. Their specificity differs: the optomotor readout singles out DNp15 among hundreds of candidates,
 whereas the escape decision is made more reliable, but not made possible, by the looming detectors, and
 carries little information about the side of the threat. An earlier, demonstration-based version of these
 results described the escape as lateralised; the controls do not support that. What was wired in is listed in
@@ -369,18 +427,19 @@ The clearest limitation is sensory. A single forward camera covers a small part 
 and the canonical steering neuron DNa02 \cite{rayshubskiy2020} did not respond to rotation within it. The
 head-coupled neuron DNp15 did, so we steer the head with the fly's output and the body with a coupling rule
 of ours. Whether a wider camera, or several, recover DNa02-based steering is a direct experimental question
-the setup can answer.
+the setup can answer. For a small target DNa02 does respond within the camera's view, so following is
+steered by the fly's own steering neuron; but its losses---a target that leaves the \SI{45}{\degree} view
+is not found again---are again the camera's, against a fly's nearly panoramic eyes.
 
 Other limitations are those of the model and the platform. The LIF model of \cite{shiu2024} uses one
 synaptic weight for all connections, has no gap junctions (the giant fibre's electrical synapses are
 absent), no plasticity and no neuromodulation, and treats neurotransmitter predictions as signs. T4 and T5
 are driven alike, without an ON/OFF split. The robot is simulated; its gait reaches 40\% of commanded speed
 and the camera/state timing measured in simulation will differ on hardware. Our gains and gates are
-engineering choices, stated as such. We make no claim that the robot behaves like a fly beyond the two
-reflexes measured.
+engineering choices, stated as such. LC10a's preference for moving over stationary objects is not modelled.
+We make no claim that the robot behaves like a fly beyond the three behaviours measured.
 
-Natural next steps are pursuit through the courtship circuit (LC10 $\rightarrow$ P1) as a ``follow me''
-behaviour, valence learning in the mushroom body with plasticity at Kenyon-cell output synapses, and the
+Natural next steps are valence learning in the mushroom body with plasticity at Kenyon-cell output synapses, and the
 physical robot, with the brain on a laptop and the robot's camera streamed over WebRTC. Related efforts embody
 connectome-constrained or neuromechanical fly models in simulated bodies \cite{lobato2022,vaxenburg2025};
 here the body is a different animal's, and the interesting part is the translation between them.
@@ -418,6 +477,8 @@ from an AI coding assistant (Anthropic's Claude), directed and reviewed by the a
 \bibitem{farneback2003} G.~Farneb\"ack. Two-frame motion estimation based on polynomial expansion. \emph{Scandinavian Conference on Image Analysis} (2003).
 \bibitem{lobato2022} V.~Lobato-Rios et al. NeuroMechFly, a neuromechanical model of adult \emph{Drosophila melanogaster}. \emph{Nat.\ Methods} 19, 620--627 (2022).
 \bibitem{vaxenburg2025} R.~Vaxenburg et al. Whole-body physics simulation of fruit fly locomotion. \emph{Nature} (2025).
+\bibitem{ribeiro2018} I.~M.~A.~Ribeiro et al. Visual projection neurons mediating directed courtship in \emph{Drosophila}. \emph{Cell} 174, 607--621 (2018).
+\bibitem{hindmarshsten2021} T.~Hindmarsh Sten, R.~Li, A.~Otopalik, V.~Ruta. Sexual arousal gates visual processing during \emph{Drosophila} courtship. \emph{Nature} 595, 549--553 (2021).
 \end{thebibliography}
 
 \end{document}

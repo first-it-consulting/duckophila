@@ -140,11 +140,48 @@ def fig_flips():
     return {f'{v}|{r}|{n}|{s}': float(x) for (v, r), o in res.items() for (n, s), x in o.items()}
 
 
+def fig_follow():
+    """Figure 5: following. DNa02 against the target's bearing (three brains) and elevation, open loop;
+    and the duck's heading against the target's in closed loop (paper/data, from experiments/follow_*.py)."""
+    data = ROOT / 'paper' / 'data'
+    fd = json.loads((data / 'follow_dn.json').read_text())
+    fig, axs = plt.subplots(1, 3, figsize=(7.2, 2.4), gridspec_kw={'width_ratios': [1, 1, 1.5]})
+    ax = axs[0]
+    for run, col, label in (('intact', 'C0', 'intact'), ('shuffled', '0.5', 'rewired'), ('input null', 'C1', 'input null')):
+        pb = fd['runs'][run]['dna02_LminusR']
+        az = [float(a) for a in pb]; m = [pb[a][0] for a in pb]
+        err = np.array([[pb[a][0] - pb[a][1] for a in pb], [pb[a][2] - pb[a][0] for a in pb]])
+        ax.errorbar(az, m, yerr=err, color=col, marker='o', ms=3, lw=1, capsize=2, label=label)
+    ax.axhline(0, c='0.85', lw=0.6, zorder=0)
+    ax.set(xlabel='target bearing (deg, + = left)', ylabel='DNa02 left - right (Hz)', title='by bearing, el -10 deg')
+    ax.legend(frameon=False, fontsize=6)
+    ax = axs[1]
+    el = fd['elevation']
+    e = [float(k) for k in el]; m = [el[k][0] for k in el]
+    err = np.array([[el[k][0] - el[k][1] for k in el], [el[k][2] - el[k][0] for k in el]])
+    ax.errorbar(m, e, xerr=err, color='C0', marker='o', ms=3, lw=1, capsize=2)
+    ax.axhline(0, c='0.85', lw=0.6, zorder=0)
+    ax.set(xlabel='turn toward, +-10 deg (Hz)', ylabel='target elevation (deg)', title='by elevation')
+    ax = axs[2]
+    for name, col, label in (('intact_1', 'C0', 'intact, kept up'), ('intact_0', 'C3', 'intact, lost on a right turn'),
+                             ('shuffled_1', '0.5', 'rewired')):
+        rows = json.loads((data / 'follow_runs' / f'{name}.json').read_text())['rows']
+        t = [r['t'] for r in rows]
+        ax.plot(t, [r['duck_deg'] - rows[0]['duck_deg'] for r in rows], c=col, lw=1, label=label)
+    ax.plot(t, [r['target_deg'] - rows[0]['target_deg'] for r in rows], c='k', lw=0.8, ls='--', label='target')
+    ax.set(xlabel='time (s)', ylabel='heading (deg, + = left)', title='closed loop')
+    ax.legend(frameon=False, fontsize=6, loc='lower left', bbox_to_anchor=(0.0, 0.0))
+    ax.set_ylim(-140, 120)
+    fig.tight_layout(); fig.savefig(OUT / 'follow.pdf'); plt.close(fig)
+    return {'follow_dna02_corr': fd['runs']['intact']['dna02_corr'], 'follow_dna02_rank': fd['runs']['intact']['dna02_rank']}
+
+
 if __name__ == '__main__':
     numbers = {}
     fig_frames()
     numbers.update(fig_validation())
     numbers.update(fig_eyes())
     numbers.update(fig_flips())
+    numbers.update(fig_follow())
     (OUT / 'numbers.json').write_text(json.dumps(numbers, indent=1))
     print(json.dumps(numbers, indent=1))

@@ -1,9 +1,10 @@
-"""The fly brain, wired to a duck. Steps 1 and 2 of `docs/ideas/fly-brain.md`.
+"""The fly brain, wired to a duck. Steps 1-3 of `docs/ideas/fly-brain.md`.
 
     .venv/bin/python -I bridge.py              # startle only (step 1), with the live brain view
     .venv/bin/python -I bridge.py --steer head  # and the head optomotor reflex (step 2) — needs the camera
     .venv/bin/python -I bridge.py --steer body  # the head reflex, and the walking body following the head
     .venv/bin/python -I bridge.py --steer dna02 # the body turned by DNa02 directly, for comparison
+    .venv/bin/python -I bridge.py --steer follow  # follow me: a small target -> LC10a -> DNa02 -> walk toward it
     .venv/bin/python -I bridge.py --no-viz     # without the viewer
     .venv/bin/python -I bridge.py --dry        # brain and view only; send the duck nothing
     .venv/bin/python -I bridge.py --record run.rrd   # and save the view to replay or share
@@ -29,6 +30,10 @@ found and the literature has):
     head's idle look-around taken out of the image (efference copy). The literature's turning
     neuron — but it needs more visual field than the camera's ±22° x ±36°: over that view it does
     not flip with rotation (`experiments/retinotopy_check.py`). Kept to show exactly that.
+  * `--steer follow` (step 3, "follow me"): no optic flow — the camera's target bearing
+    (`follow.py`'s detector) onto LC10a, and DNa02's left-minus-right -> `robot.move` vyaw while
+    walking at 0.1 m/s; standing while no target is in view. The head is held straight, so the
+    camera looks where the body does and `robotd`'s idle look-around stands down.
 Which way and how hard come from the fly; the gains, the smoothing and the clamps are ours. A
 flinch outranks steering while it lasts.
 
@@ -70,13 +75,15 @@ FOV_DEG = 45.0
 STEER_GAIN = {'head': float(os.environ.get('DUCKOPHILA_HEAD_GAIN', 0.004)),
               'dna02': float(os.environ.get('DUCKOPHILA_BODY_GAIN', 0.02))}
 STEER_GAIN['body'] = STEER_GAIN['head']
+# follow: DNa02 answers a small target sparsely (a few Hz of L - R at 10 deg), so more gain, more smoothing
+STEER_GAIN['follow'] = float(os.environ.get('DUCKOPHILA_FOLLOW_GAIN', 0.05))
 # --steer body: rad/s of body turn per rad of head yaw — the head is recentred in ~1/k seconds
 HEAD_TO_BODY = float(os.environ.get('DUCKOPHILA_HEAD_TO_BODY', 1.0))
 # How much older a camera frame is than its `captured_at` says, against the robot.state stream.
 # Measured in duck-sim (`experiments/ego_lag.py`: the walking efference copy correlates best,
 # r = 0.90, with the state 0-0.02 s before the stamp); a real duck's pipeline needs its own.
 FRAME_LAG_S = float(os.environ.get('DUCKOPHILA_FRAME_LAG_S', 0.01))
-STEER_TAU_S = 0.15       # smoothing of the R - L difference
+STEER_TAU_S = {'follow': float(os.environ.get('DUCKOPHILA_FOLLOW_TAU_S', 0.4))}   # smoothing of the R - L difference
 STEER_MAX = 1.0          # rad/s
 HEAD_YAW_MAX = 0.9       # rad either side of straight ahead
 # Steering the body means walking while turning, as a fly does: velstand ignores yaw commands under
@@ -257,10 +264,14 @@ class Body:
 class Camera:
     """`mediad`'s local frames through `MotionEncoder`, on a thread; the latest rates on demand."""
 
-    def __init__(self, path: Path, body: Body, efference: bool = True):
-        from motion import MotionEncoder
+    def __init__(self, path: Path, body: Body, efference: bool = True, follow: bool = False):
         self.path, self.body, self.efference = path, body, efference
-        self.enc = MotionEncoder()
+        if follow:
+            from follow import FollowEncoder
+            self.enc = FollowEncoder()
+        else:
+            from motion import MotionEncoder
+            self.enc = MotionEncoder()
         self.rates: dict[int, float] = {}
         self.grey = None
         self.fps = 0.0
@@ -307,7 +318,7 @@ class Trace:
     """Every brain step, for `video/make_video.py`: wall time, which neurons spiked, the key
     descending neurons' rates, the depth frame, a camera thumbnail, startles and steering."""
 
-    KEY = (N.GIANT_FIBER, 'DNp15', 'DNa02', 'LPLC2')
+    KEY = (N.GIANT_FIBER, 'DNp15', 'DNa02', 'LPLC2', 'LC10a')
 
     def __init__(self, path: Path, brain: FlyBrain):
         self.path, self.rows = path, []
@@ -392,7 +403,7 @@ class View:
         if camera is not None and camera.grey is not None:
             g = camera.grey[::4, ::4]
             rr.log('camera/image', rr.Image(g))
-            fl = camera.enc.flow_deg
+            fl = getattr(camera.enc, 'flow_deg', None)
             if fl is not None:
                 gh, gw = g.shape
                 rows, cols = fl.shape[1], fl.shape[2]
@@ -403,7 +414,11 @@ class View:
                             origins.append([(e * cols + c + 0.5) * gw / (2 * cols), (r + 0.5) * gh / rows])
                             vectors.append(fl[e, r, c] * 0.5)
                 rr.log('camera/image/flow', rr.Arrows2D(origins=origins, vectors=vectors, colors=(255, 200, 0)))
-            rr.log('camera/mean_flow_deg_s', rr.Scalars(camera.enc.mean_u))
+            if hasattr(camera.enc, 'mean_u'):
+                rr.log('camera/mean_flow_deg_s', rr.Scalars(camera.enc.mean_u))
+            tg = getattr(camera.enc, 'target', None)
+            if tg is not None:
+                rr.log('camera/target_bearing_deg', rr.Scalars(tg[0]))
         for name, ix in self.watch.items():
             rr.log(f'dn/{name}', rr.Scalars(counts[ix].sum() * 1000.0 / ms / len(ix)))
         if steer is not None:
@@ -415,7 +430,8 @@ class View:
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--duck', default='duck-a')
-    ap.add_argument('--steer', choices=('head', 'body', 'dna02'), help='the optomotor reflex (step 2); needs the camera')
+    ap.add_argument('--steer', choices=('head', 'body', 'dna02', 'follow'),
+                    help='the optomotor reflex (step 2), or follow me (step 3); needs the camera')
     ap.add_argument('--brain', choices=('intact', 'shuffled', 'flipped'), default='intact',
                     help='a null brain for controls: wiring shuffled, or signs flipped (flysim.FlyBrain.null)')
     ap.add_argument('--no-startle', action='store_true', help='leave step 1 out: no flinch (the giant fiber is still read)')
@@ -436,8 +452,9 @@ def main():
     view = None if args.no_viz and not args.record else View(brain, live=not args.no_viz, record=args.record)
     duck = None if args.dry else Duck(STATE / f'{args.duck}.sock')
     body = Body(STATE / f'{args.duck}.sock')
-    camera = Camera(STATE / f'{args.duck}-frame.sock', body, efference=args.steer == 'dna02') if args.steer else None
-    steer_dn = 'DNa02' if args.steer == 'dna02' else 'DNp15'
+    camera = (Camera(STATE / f'{args.duck}-frame.sock', body, efference=args.steer == 'dna02', follow=args.steer == 'follow')
+              if args.steer else None)
+    steer_dn = 'DNa02' if args.steer in ('dna02', 'follow') else 'DNp15'
     pair = {s: [brain.index[f] for f in N.ids(steer_dn, s)] for s in ('left', 'right')}
 
     trace = Trace(args.trace, brain) if args.trace else None
@@ -497,7 +514,7 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace):
         vyaw = None
         if camera is not None:
             hz = {s: counts[ix].sum() * 1000.0 / ms / len(ix) for s, ix in pair.items()}
-            a = 1.0 - math.exp(-ms / 1000.0 / STEER_TAU_S)
+            a = 1.0 - math.exp(-ms / 1000.0 / STEER_TAU_S.get(args.steer, 0.15))
             diff += a * ((hz['right'] - hz['left']) - diff)
             vyaw = float(np.clip(-STEER_GAIN[args.steer] * diff, -STEER_MAX, STEER_MAX))
             if args.steer in ('head', 'body'):
@@ -517,6 +534,14 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace):
                         duck.head(head)
                         if args.steer == 'body':
                             duck.turn(turn, BODY_VX)
+            elif args.steer == 'follow':
+                if head is None and body.state.get('head'):
+                    head = list(body.state['head'])
+                    head[2] = 0.0                       # straight ahead: the camera looks where the body goes
+                if duck and head is not None and time.monotonic() >= duck.flinching_until:
+                    duck.head(head)
+                    seen = camera.enc.target is not None
+                    duck.turn(vyaw if seen else 0.0, BODY_VX if seen else 0.0)
             elif duck:
                 duck.turn(vyaw, BODY_VX)
 
@@ -536,7 +561,10 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace):
                         dy = math.atan2(math.sin(yaw - yaw0), math.cos(yaw - yaw0))
                         rate = f', duck yaw rate {math.degrees(dy) / (time.monotonic() - t_yaw0):+5.1f} deg/s'
                     yaw0, t_yaw0 = yaw, time.monotonic()
-                line += (f', camera {camera.fps:.0f} fps, flow {camera.enc.mean_u:+5.1f} deg/s, '
+                tg = getattr(camera.enc, 'target', None)
+                seen = (f'target {tg[0]:+5.1f} deg' if tg else 'no target') if args.steer == 'follow' \
+                    else f'flow {camera.enc.mean_u:+5.1f} deg/s'
+                line += (f', camera {camera.fps:.0f} fps, {seen}, '
                          f'{steer_dn} R-L {diff:+5.1f} Hz -> {vyaw:+.2f} rad/s'
                          + (f', head yaw {head[2]:+.2f} rad (measured {body.state["joints"][body.head_yaw]:+.2f})'
                             if head is not None and body.head_yaw is not None else '') + rate)

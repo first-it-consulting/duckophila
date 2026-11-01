@@ -1,0 +1,62 @@
+startle: intact done (18 s)
+startle: shuffled done (32 s)
+startle: flipped done (48 s)
+startle: input null done (72 s)
+optomotor: intact done (111 s)
+optomotor: shuffled done (116 s)
+optomotor: flipped done (121 s)
+
+=== startle: P(giant fibre spike) by approach speed, n = 40 per cell (both sides), 95% Wilson CI
+ speed m/s                  intact                shuffled                 flipped              input null
+       0.2  0/40  0.00 [0.00,0.09]  0/40  0.00 [0.00,0.09]  0/40  0.00 [0.00,0.09]  0/40  0.00 [0.00,0.09]
+       0.4 21/40  0.53 [0.37,0.67]  0/40  0.00 [0.00,0.09]  0/40  0.00 [0.00,0.09] 17/40  0.42 [0.29,0.58]
+       0.6 40/40  1.00 [0.91,1.00]  0/40  0.00 [0.00,0.09]  0/40  0.00 [0.00,0.09] 20/40  0.50 [0.35,0.65]
+       0.8 40/40  1.00 [0.91,1.00]  0/40  0.00 [0.00,0.09]  0/40  0.00 [0.00,0.09] 21/40  0.53 [0.37,0.67]
+       1.0 40/40  1.00 [0.91,1.00]  0/40  0.00 [0.00,0.09]  0/40  0.00 [0.00,0.09] 21/40  0.53 [0.37,0.67]
+       1.5 40/40  1.00 [0.91,1.00]  0/40  0.00 [0.00,0.09]  0/40  0.00 [0.00,0.09] 20/40  0.50 [0.35,0.65]
+       2.0 28/40  0.70 [0.55,0.82]  0/40  0.00 [0.00,0.09]  0/40  0.00 [0.00,0.09] 20/40  0.50 [0.35,0.65]
+
+=== startle laterality (fast approaches, >= 1.0 m/s, trials with a spike): ipsilateral GF share, mean [95% CI]
+   intact    ipsilateral share 0.58 [0.56, 0.59] over 108 trials; latency 0.54 s
+   shuffled  ipsilateral share nan [nan, nan] over 0 trials; latency nan s
+   flipped   ipsilateral share nan [nan, nan] over 0 trials; latency nan s
+   input null ipsilateral share 0.54 [0.52, 0.56] over 61 trials; latency 0.41 s
+
+=== activity: mean spikes per startle trial (all neurons, 3 s), fast approaches
+   intact           1620
+   shuffled          966
+   flipped           876
+   input null       1293
+
+=== false startles, n = 20 per scene
+   intact    static wall, noise: 0/20   walk to wall 0.15 m/s: 1/20   walk to wall 0.3 m/s: 6/20   ball crossing at 40 cm: 0/20
+   shuffled  static wall, noise: 0/20   walk to wall 0.15 m/s: 0/20   walk to wall 0.3 m/s: 0/20   ball crossing at 40 cm: 0/20
+   flipped   static wall, noise: 0/20   walk to wall 0.15 m/s: 0/20   walk to wall 0.3 m/s: 0/20   ball crossing at 40 cm: 0/20
+   input null static wall, noise: 0/20   walk to wall 0.15 m/s: 0/20   walk to wall 0.3 m/s: 2/20   ball crossing at 40 cm: 0/20
+
+=== optomotor: right-minus-left rate (Hz), mean [95% CI]; following needs + for world-right, - for world-left
+   intact    camera only DNp15: world left  -51.4 [-52.0,-50.9]  world right  +85.7 [+85.2,+86.0]  FOLLOWS
+   intact    camera only DNa02: world left   +4.0 [+3.0,+4.9]  world right  +12.1 [+10.7,+13.3]  -
+   intact    whole eye   DNp15: world left  -99.7 [-100.0,-99.3]  world right +125.3 [+124.8,+125.8]  FOLLOWS
+   intact    whole eye   DNa02: world left  -42.4 [-44.3,-40.5]  world right  +21.8 [+20.5,+22.9]  FOLLOWS
+   intact    giant fibre spikes during rotation: 0/80 trials; mean spikes per 1 s trial 66450
+   shuffled  camera only DNp15: world left   +0.0 [+0.0,+0.0]  world right   +0.0 [+0.0,+0.0]  -
+   shuffled  camera only DNa02: world left   +0.0 [+0.0,+0.0]  world right   +0.0 [+0.0,+0.0]  -
+   shuffled  whole eye   DNp15: world left   +0.0 [+0.0,+0.0]  world right   +0.0 [+0.0,+0.0]  -
+   shuffled  whole eye   DNa02: world left   +0.0 [+0.0,+0.0]  world right   +0.0 [+0.0,+0.0]  -
+   shuffled  giant fibre spikes during rotation: 11/80 trials; mean spikes per 1 s trial 55393
+   flipped   camera only DNp15: world left   +0.0 [+0.0,+0.0]  world right   +0.0 [+0.0,+0.0]  -
+   flipped   camera only DNa02: world left   +0.0 [+0.0,+0.0]  world right   +0.0 [+0.0,+0.0]  -
+   flipped   whole eye   DNp15: world left   +0.0 [+0.0,+0.0]  world right   +0.0 [+0.0,+0.0]  -
+   flipped   whole eye   DNa02: world left   +0.0 [+0.0,+0.0]  world right   +0.0 [+0.0,+0.0]  -
+   flipped   giant fibre spikes during rotation: 0/80 trials; mean spikes per 1 s trial 55064
+
+=== readout null, camera only: 383 paired DN types; 13 follow, 8 oppose (95% CIs exclude 0 in both directions)
+   DNp15: follow index +137.1 Hz, rank 1 of 383 by |index|  (follows)
+   DNa02: follow index +8.1 Hz, rank 21 of 383 by |index|
+   top 6: DNp15 +137, DNae002 +124, DNg41 +75, DNa11 -60, DNae003 +46, DNpe019 +44
+
+=== readout null, whole eye: 383 paired DN types; 14 follow, 9 oppose (95% CIs exclude 0 in both directions)
+   DNp15: follow index +225.1 Hz, rank 1 of 383 by |index|  (follows)
+   DNa02: follow index +64.2 Hz, rank 9 of 383 by |index|  (follows)
+   top 6: DNp15 +225, DNg41 +170, DNae002 +112, DNp18 +104, DNp20 +84, DNp26 -80

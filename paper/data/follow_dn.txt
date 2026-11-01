@@ -1,0 +1,65 @@
+LC10a with a receptive field: 232; DN pairs: 383
+
+== intact (1 s)
+  bearing   -20  DNa02 L-R   -5.5 Hz [-6.5, -4.5]
+  bearing   -10  DNa02 L-R   -1.8 Hz [-2.5, -1.2]
+  bearing    +0  DNa02 L-R   +1.6 Hz [+1.1, +2.1]
+  bearing   +10  DNa02 L-R   +5.3 Hz [+4.7, +6.0]
+  bearing   +20  DNa02 L-R  +14.2 Hz [+13.1, +15.2]
+  DNa02 r = +0.94, rank 3/383; pairs with r > 0.5: 9, r < -0.5: 1
+    DNae002              r +0.97  +9.5 Hz/10deg
+    DNa16                r +0.97  +6.4 Hz/10deg
+    DNa02                r +0.94  +4.6 Hz/10deg
+    DNg97                r -0.86  -3.5 Hz/10deg
+    DNb01                r +0.83  +1.3 Hz/10deg
+    DNp31                r +0.78  +1.1 Hz/10deg
+    DNg75                r +0.72  +0.5 Hz/10deg
+    aSP22                r +0.67  +0.6 Hz/10deg
+    DNa04                r +0.65  +0.3 Hz/10deg
+    DNg111               r +0.56  +0.3 Hz/10deg
+
+== shuffled (2 s)
+  bearing   -20  DNa02 L-R   +0.0 Hz [+0.0, +0.0]
+  bearing   -10  DNa02 L-R   +0.0 Hz [+0.0, +0.0]
+  bearing    +0  DNa02 L-R   +0.0 Hz [+0.0, +0.0]
+  bearing   +10  DNa02 L-R   +0.0 Hz [+0.0, +0.0]
+  bearing   +20  DNa02 L-R   +0.0 Hz [+0.0, +0.0]
+  DNa02 r = +0.00, rank 3/383; pairs with r > 0.5: 0, r < -0.5: 0
+    DNp43                r -0.41  -0.3 Hz/10deg
+    DNp70                r +0.39  +0.1 Hz/10deg
+    DNpe037              r +0.25  +0.0 Hz/10deg
+    DNa01                r +0.00  +0.0 Hz/10deg
+    DNge147              r +0.00  +0.0 Hz/10deg
+    DNge146              r +0.00  +0.0 Hz/10deg
+    DNge144              r +0.00  +0.0 Hz/10deg
+    DNge143              r +0.00  +0.0 Hz/10deg
+    DNge142              r +0.00  +0.0 Hz/10deg
+    DNge141              r +0.00  +0.0 Hz/10deg
+
+== input null (3 s)
+  bearing   -20  DNa02 L-R   +1.2 Hz [+0.7, +1.9]
+  bearing   -10  DNa02 L-R   +1.3 Hz [+0.8, +1.9]
+  bearing    +0  DNa02 L-R   +4.3 Hz [+3.4, +5.3]
+  bearing   +10  DNa02 L-R   +3.9 Hz [+3.0, +4.7]
+  bearing   +20  DNa02 L-R   +0.3 Hz [+0.1, +0.6]
+  DNa02 r = +0.05, rank 29/383; pairs with r > 0.5: 3, r < -0.5: 1
+    DNge035              r +0.84  +1.5 Hz/10deg
+    DNg97                r +0.81  +1.6 Hz/10deg
+    DNp32                r +0.80  +1.6 Hz/10deg
+    DNa01                r -0.57  -0.6 Hz/10deg
+    DNp45                r +0.33  +0.1 Hz/10deg
+    DNg75                r -0.31  -0.2 Hz/10deg
+    DNge007              r -0.31  -0.3 Hz/10deg
+    DNg40                r +0.31  +0.3 Hz/10deg
+    DNge037              r -0.25  -0.0 Hz/10deg
+    DNp35                r +0.22  +0.0 Hz/10deg
+
+== intact, DNa02 toward-turn (half the L-R difference between +10 and -10 deg) by elevation
+  elevation   +15   +0.0 Hz [+0.0, +0.0]
+  elevation   +10   +0.0 Hz [+0.0, +0.0]
+  elevation    +5   +0.0 Hz [+0.0, +0.1]
+  elevation    +0   +0.3 Hz [+0.2, +0.4]
+  elevation    -5   +2.1 Hz [+1.7, +2.5]
+  elevation   -10   +3.9 Hz [+3.3, +4.3]
+  elevation   -15   +4.3 Hz [+4.0, +4.7]
+  elevation   -20   +4.4 Hz [+3.6, +5.2]

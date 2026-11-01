@@ -24,10 +24,15 @@ What the duck does, in the MuJoCo twin today:
   head turns with the stripes through DNp15/DNHS1, the descending neuron that turns a fly's head,
   at a closed-loop gain of 0.28 [0.24, 0.32]; the walking body follows the head. That is the
   optomotor reflex a fly holds its course with.
+- **It follows a target.** A small bright thing on the floor — where your feet would be — drives the
+  fly's small-object detectors (LC10a), and through the anterior optic tubercle the fly's steering
+  neuron DNa02 turns the walking duck toward it. Led 90° left and right, the duck kept up for the
+  whole run in 5 of 8 runs (heading gain 1.00, median error 7.8°); in the other three it lost the
+  target on a right turn, its weak side, and stopped.
 
-Neither is wired in, and both need the real wiring: with the connectome rewired — the same
+None is wired in, and all need the real wiring: with the connectome rewired — the same
 neurons, the same weights, every neuron's number of inputs and outputs kept — the duck never
-startles (0 of 20) and its head does not turn (gain 0.00). How specific each part is was measured
+startles (0 of 20), its head does not turn (gain 0.00), and it follows nothing (0 of 8). How specific each part is was measured
 against controls, not assumed — and some of it is less specific than it looks (see
 [Controls](#controls-and-statistics)).
 
@@ -43,6 +48,7 @@ the docs.
 | The giant fiber's decision to fire | The shape of the flinch (honk, look, crouch, back off) |
 | Which way DNp15 and DNa02 say to turn | The gains, the smoothing, and that the body follows the head |
 | Where each motion detector looks (FlyWire's column map) | The approach-speed gate that spares a petting hand — so the startle's speed tuning is ours |
+| That LC10a → AOTU019/025 → DNa02 turns toward a small target, and only one below the eye's equator | The target detector and the bearing → LC10a encoder (`follow.py`), its dose; walking while a target is in view |
 
 The brain is not tuned, retrained or edited. Its input is shaped like a fly's sensory neurons
 would be, and its output is read from the neurons the literature says carry it.
@@ -116,6 +122,8 @@ DUCK_SIM_CAMERAS=a sim/duck-sim             # the duck, its camera, a ball and a
 .venv/bin/python -I bridge.py --steer head  # and the head's optomotor reflex
 .venv/bin/python -I bridge.py --steer body  # or the whole duck, walking, the body following the head
 .venv/bin/python -I drum.py --speed 30 --period 8
+.venv/bin/python -I bridge.py --steer follow  # follow me: steered by DNa02 toward the glowing target
+.venv/bin/python -I lead.py                 # the target leads, 90° left and right
 sim/duck-sim down
 ```
 
@@ -135,22 +143,26 @@ the view. `MICRODUCK=` and `DUCK_SIM_RL=` point `sim/duck-sim` elsewhere.
 - `looming.py` — **ours**: the depth sensor as the fly's looming detectors.
 - `motion.py` — **ours**: the camera as the fly's motion detectors, with efference copies of the
   duck's own head turns and walking.
+- `follow.py` — **ours**: the camera's target as the fly's small-object detectors (LC10a), with
+  where each LC10a looks, read off its inputs on FlyWire's column map.
 - `geometry.py` — which depth zones see the floor, and the duck's own motion, from `robot.state`.
 - `bridge.py` — the loop: the robot's own sockets in, the brain, intents out; the Rerun view.
-- `throw.py`, `drum.py` — the ball and the striped drum.
+- `throw.py`, `drum.py`, `lead.py` — the ball, the striped drum, and the target that leads.
 - `video/` — `record_sim.py` (the duck's pose, 30 Hz) and `make_video.py` (sim and brain, side by side).
-- `sim/` — puts the ball and the drum into the simulator without changing it: a generated copy of
+- `sim/` — puts the ball, the drum and the target into the simulator without changing it: a generated copy of
   a `microduck_rl` scene, and a `sitecustomize.py` that moves them (inert unless `DUCKOPHILA_PROP=1`).
 - `experiments/` — every claim above, as a script:
   `sugar_mn9.py`, `replay.py`, `compare.py`, `realtime.py`, `bench.py` (the brain); `looming_gf.py`,
   `tof_scenes.py` (the startle); `optomotor_dn.py`, `optomotor_replay.py`, `columns_orient.py`,
   `retinotopy_check.py` (the motion pathway); `ego_nod.py`, `ego_lag.py`, `ego_flow_check.py`
-  (the efference copy).
+  (the efference copy); `follow_dn.py` (follow me); `controls.py`, `closed_loop_stats.py`,
+  `follow_stats.py` (the controls and statistics below).
 
 ## Controls and statistics
 
 Every claim above, repeated, against brains that are wired wrong (`experiments/controls.py`,
-open loop, 20 seeds; `experiments/closed_loop_stats.py`, the whole robot stack, 20 throws).
+open loop, 20 seeds; `experiments/closed_loop_stats.py`, the whole robot stack, 20 throws;
+`experiments/follow_dn.py` and `follow_stats.py`, the same for following, 8 closed-loop runs).
 95% confidence intervals.
 
 | | intact | rewired¹ | signs flipped | input null² |
@@ -164,11 +176,15 @@ open loop, 20 seeds; `experiments/closed_loop_stats.py`, the whole robot stack, 
 | head optomotor gain (closed loop) | **0.28** [0.24, 0.32] | 0.00 | | |
 | DNp15 follows rotation (camera view) | **yes**: rank 1 of 383 DN pairs³ | no | no | |
 | DNa02 follows rotation | whole eye yes · camera view no | no | no | |
+| DNa02 turns toward a target, by bearing (open loop) | **r = 0.94**, rank 3 of 383⁴ | r = 0.00 | | r = 0.05 |
+| follow me: runs the duck kept up (closed loop) | **5/8** [0.31, 0.86] | 0/8 [0.00, 0.32] | | |
+| follow me: heading gain · median error, those runs | 1.00 · 7.8° [6.6, 9.3] | — | | |
 
 ¹ each connection keeps its source neuron and weight, gets a random target; every neuron keeps its
 number of inputs and outputs. ² the intact brain, with the looming input sent to as many *other*
 visual projection neurons. ³ of all descending neuron types with one neuron a side, 13 follow
-rotation; DNp15 follows most strongly.
+rotation; DNp15 follows most strongly. ⁴ DNae002 and DNa16 track the target's bearing slightly more
+closely than DNa02 does; nine DN pairs track it at all (r > 0.5).
 
 What this says, and does not:
 
@@ -184,6 +200,18 @@ What this says, and does not:
 - **The speed tuning is ours.** No startle at 0.2 m/s comes from our approach-speed gate, not the
   fly (the input null shows the same cut). At 2 m/s the encoder misses 30% of throws.
 - **There are false alarms.** Walking towards a wall at 0.3 m/s startles 6 times in 20.
+- **Following is the fly's object pathway, not its courtship.** FlyWire is a female brain: there is
+  no P1, so the courtship chase is not in this graph. What is, is the pathway the chase is built on
+  — and with the input sent to random visual neurons instead of LC10a, DNa02 no longer tracks the
+  bearing (r = 0.05).
+- **It only looks down.** Through the wiring, LC10a turns DNa02 for a target below the eye's
+  equator and not at all above it (0 Hz at +5° and up, ~4 Hz from −10° down). A target at the
+  camera's height sits above its centre, and the duck ignores it: so the target is on the floor.
+- **Right turns are weak.** The two eyes' LC10a maps are not mirror images — the left eye's look
+  further front — so DNa02 leans left (+1.6 Hz dead ahead), and a target 10° right gets a third of
+the turn one 10° left gets (−1.8 against +5.3 Hz). Every
+  lost run lost the target turning right. Whether that is the fly or our column-to-angle map, we
+  cannot tell from here.
 
 ## What does not work yet
 
@@ -196,8 +224,9 @@ What this says, and does not:
   and sometimes will not take a first slow step; the body steers while walking at 0.1 m/s.
 - **No real duck yet.** On hardware, the camera/state timing has to be measured again
   (`experiments/ego_lag.py`), and the brain belongs on a laptop reaching the duck over WebRTC.
-- Next on the list: the fly's courtship-pursuit circuit (LC10 → P1) as "follow me", and
-  mushroom-body learning with petting as the reward.
+- **A lost target stays lost.** With nothing in view the duck stands; the camera's ±22.5° is all
+  the field it has to find it again in. LC10a's preference for *moving* objects is not modelled.
+- Next on the list: mushroom-body learning, with petting as the reward.
 
 ## Things that were not obvious
 

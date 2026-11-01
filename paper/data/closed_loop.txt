@@ -1,0 +1,13 @@
+intact done
+shuffled done
+
+=== intact
+   fast (1.5 m/s): startle 19/20 = 0.95 [0.76, 0.99], latency 0.53 s
+   slow (0.2 m/s): startle 0/20 = 0.00 [0.00, 0.16]
+   lateral fast throws: ipsilateral giant-fibre share 0.57 [0.45, 0.66] over 12
+   head optomotor gain 0.28 [0.24, 0.32] over 12 drum phases
+
+=== shuffled
+   fast (1.5 m/s): startle 0/20 = 0.00 [0.00, 0.16]
+   slow (0.2 m/s): startle 0/20 = 0.00 [0.00, 0.16]
+   head optomotor gain -0.00 [-0.00, 0.00] over 12 drum phases
