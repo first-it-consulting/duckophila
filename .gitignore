@@ -1,0 +1,6 @@
+__pycache__/
+.venv/
+data/
+demo/
+Drosophila_brain_model/
+results/

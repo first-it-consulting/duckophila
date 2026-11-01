@@ -1,0 +1,23 @@
+[project]
+name = "duckophila"
+version = "0.1.0"
+description = "A fruit fly's connectome driving a microduck: the FlyWire whole-brain model, stepped in a closed loop with the duck's depth sensor and camera."
+readme = "README.md"
+license = "Apache-2.0"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2.5",
+    "pandas>=3.1",
+    "pyarrow>=26",
+    "numba>=0.68",
+    "opencv-python-headless>=5.0",
+    "rerun-sdk==0.41.0",          # the viewer and the recording format must match
+]
+
+[dependency-groups]
+# the reference model, for experiments/sugar_mn9.py, replay.py and compare.py
+reference = ["brian2>=2.10", "joblib>=1.6", "scipy>=1.18"]
+
+[tool.uv]
+default-groups = ["reference"]
+package = false

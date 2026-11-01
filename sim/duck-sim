@@ -1,0 +1,30 @@
+#!/bin/sh
+# microduck's `scripts/duck-sim`, with the duckophila prop in the room. Same commands, same flags:
+#
+#   duckophila/sim/duck-sim            # up, with an orange ball parked under the floor
+#   duckophila/sim/duck-sim ctl health # anything duck-sim does
+#   duckophila/sim/duck-sim down
+#
+# Neither repo is modified: the ball is a generated copy of the scene (`make_scene.py`) and it is
+# moved by `sitecustomize.py`, which only the body server's Python picks up, and only with
+# DUCKOPHILA_PROP=1. `DUCK_SIM_SCENE=<name>` picks which microduck_rl scene to copy (default `backlash`,
+# as microduck's own duck-sim).
+set -eu
+HERE="$(cd "$(dirname "$0")" && pwd)"
+EXP="$(cd "$HERE/../.." && pwd)"
+MICRODUCK="${MICRODUCK:-$(cd "$EXP/../microduck" && pwd)}"
+RL="${DUCK_SIM_RL:-$EXP/microduck_rl}"
+SCENES="$RL/src/mjlab_microduck/robot/microduck"
+
+case "${1:-up}" in
+    up|"")
+        base="${DUCK_SIM_SCENE:-backlash}"   # the robot velstand walks on (microduck docs/design/simulation.md §11)
+        case "$base" in */*) src="$base" ;; scene) src="$SCENES/scene.xml" ;; *) src="$SCENES/scene_$base.xml" ;; esac
+        mkdir -p "$HERE/.scenes"
+        out="$HERE/.scenes/$(basename "$src" .xml)_prop.xml"
+        "$RL/.venv/bin/python" "$HERE/make_scene.py" "$src" "$out" >/dev/null
+        export DUCK_SIM_SCENE="$out"
+        ;;
+esac
+export DUCK_SIM_RL="$RL" DUCKOPHILA_PROP=1 PYTHONPATH="$HERE${PYTHONPATH:+:$PYTHONPATH}"
+exec "$MICRODUCK/scripts/duck-sim" "$@"
