@@ -1,6 +1,6 @@
 # Duckophila
 
-**A fruit fly's brain, driving a robot duck.**
+**A fruit fly's brain, driving a [microduck](https://pollen-robotics.com/microduck/)** — the open-source robot duck from Pollen Robotics / Hugging Face.
 
 <p align="center">
   <a href="media/duckophila.mp4"><img src="media/hero.gif" alt="Left: a microduck in MuJoCo; right: the fruit-fly brain driving it, every neuron at its real position, lit when it spikes" width="100%"></a>
@@ -9,7 +9,8 @@
 
 Duckophila runs the complete wiring diagram of an adult *Drosophila* brain — FlyWire's
 connectome, 138,639 neurons joined by 54 million synapses, as the leaky integrate-and-fire model of
-Shiu et al. (2024) — in a closed loop with a [microduck](https://pollen-robotics.com/microduck/):
+Shiu et al. (2024) — in a closed loop with a [microduck](https://pollen-robotics.com/microduck/)
+([`pollen-robotics/microduck`](https://github.com/pollen-robotics/microduck)):
 the duck's depth sensor and camera become the fly's looming and motion detectors, and the fly's
 descending neurons, read out, move the duck.
 

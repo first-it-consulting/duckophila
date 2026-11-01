@@ -226,8 +226,8 @@ def main():
     d = Path(sys.argv[1] if len(sys.argv) > 1 else 'demo')
     scene = HERE / 'sim' / '.scenes' / 'scene_backlash_prop.xml'
     parts = []
-    title_card(d / 'v0.mp4', [('Duckophila', 2.0), ("a fruit fly's brain, driving a robot duck", 1.0),
-                              ('FlyWire connectome  -  Shiu et al. brain model  -  Pollen Robotics microduck', 0.6)])
+    title_card(d / 'v0.mp4', [('Duckophila', 2.0), ("a fruit fly's brain, driving a microduck", 1.0),
+                              ('FlyWire connectome  -  Shiu et al. brain model  -  microduck by Pollen Robotics / Hugging Face', 0.6)])
     parts.append(d / 'v0.mp4')
     acts = [('startle', "Act 1 - a ball thrown at the face: the fly's looming detectors fire its escape neuron", False),
             ('arena', 'Act 2 - a striped drum turns: the head follows it (DNp15), the walking body follows the head', True)]

@@ -1,7 +1,7 @@
 [project]
 name = "duckophila"
 version = "0.1.0"
-description = "A fruit fly's connectome driving a microduck: the FlyWire whole-brain model, stepped in a closed loop with the duck's depth sensor and camera."
+description = "A fruit fly's connectome driving a microduck (Pollen Robotics / Hugging Face): the FlyWire whole-brain model, stepped in a closed loop with the duck's depth sensor and camera."
 readme = "README.md"
 license = "Apache-2.0"
 requires-python = ">=3.12,<3.13"
