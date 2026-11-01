@@ -3,8 +3,8 @@
 **A fruit fly's brain, driving a [microduck](https://pollen-robotics.com/microduck/)** — the open-source robot duck from Pollen Robotics / Hugging Face.
 
 <p align="center">
-  <a href="media/duckophila.mp4"><img src="media/hero.gif" alt="Left: a microduck in MuJoCo; right: the fruit-fly brain driving it, every neuron at its real position, lit when it spikes" width="100%"></a>
-  <br><sub><b><a href="media/duckophila.mp4">Watch the full video, 2 min 17 s (MP4, 720p)</a></b> · <b><a href="https://huggingface.co/spaces/HW01/duckophila">in 1080p on Hugging Face</a></b> — a ball thrown at the duck fires the fly's escape neuron (red rings); in a turning striped drum, the fly's motion detectors light up in both optic lobes (blue) and its head neuron steers the duck; a small target on the floor steers it through the fly's object pathway; and, petted while it sees the ball, it follows the ball and not the bar. Everything on the right is the recorded spikes of the real connectome; nothing is animated by hand.</sub>
+  <a href="https://huggingface.co/spaces/HW01/duckophila"><img src="media/hero.gif" alt="Left: a microduck in MuJoCo; right: the fruit-fly brain driving it, every neuron at its real position, lit when it spikes" width="100%"></a>
+  <br><sub><b><a href="https://huggingface.co/spaces/HW01/duckophila">Watch the full video, 2 min 17 s</a></b> (plays on Hugging Face) · <a href="media/duckophila.mp4">download the MP4</a> — a ball thrown at the duck fires the fly's escape neuron (red rings); in a turning striped drum, the fly's motion detectors light up in both optic lobes (blue) and its head neuron steers the duck; a small target on the floor steers it through the fly's object pathway; and, petted while it sees the ball, it follows the ball and not the bar. Everything on the right is the recorded spikes of the real connectome; nothing is animated by hand.</sub>
 </p>
 
 Duckophila runs the complete wiring diagram of an adult *Drosophila* brain — FlyWire's
