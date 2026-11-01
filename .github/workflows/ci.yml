@@ -1,0 +1,19 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  brain:
+    # Linux, from a clean clone: the brain against its reference, the controls' construction, and
+    # the encoders. The visual column map needs a Codex sign-in, so what needs it is skipped here.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - run: uv sync
+      - run: git clone --depth 1 https://github.com/philshiu/Drosophila_brain_model.git
+      - run: |
+          mkdir -p data results
+          curl -fsSL -o data/flywire_783_annotations.tsv \
+            https://raw.githubusercontent.com/flyconnectome/flywire_annotations/main/supplemental_files/Supplemental_file1_neuron_annotations.tsv
+      - name: the reference model's own run (1 trial), to replay against
+        run: .venv/bin/python -I experiments/sugar_mn9.py 1
+      - run: uv run --with pytest pytest -q tests

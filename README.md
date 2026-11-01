@@ -16,14 +16,20 @@ descending neurons, read out, move the duck.
 
 What the duck does, in the MuJoCo twin today:
 
-- **It startles.** A ball thrown at its face fires the fly's giant fiber — the escape neuron —
-  through the fly's own looming detectors (LPLC2, LC4), and the duck honks, ducks and backs off.
-  A hand approaching slowly does not. A ball from the left fires the left giant fiber.
+- **It startles.** A ball thrown at its face fires the fly's giant fibre — the escape neuron —
+  through the fly's own looming detectors (LPLC2, LC4), and the duck honks, ducks and backs off:
+  19 of 20 throws at 1.5 m/s in the robot's twin. A hand approaching at petting speed never does
+  (0 of 20) — though that speed threshold is ours, not the fly's (below).
 - **It follows the world turning.** In a striped drum — the classic fly-arena experiment — its
   head turns with the stripes through DNp15/DNHS1, the descending neuron that turns a fly's head,
-  and the walking body follows the head. That is the optomotor reflex a fly holds its course with.
+  at a closed-loop gain of 0.28 [0.24, 0.32]; the walking body follows the head. That is the
+  optomotor reflex a fly holds its course with.
 
-Nobody wired those behaviours in. They come out of the connectome.
+Neither is wired in, and both need the real wiring: with the connectome rewired — the same
+neurons, the same weights, every neuron's number of inputs and outputs kept — the duck never
+startles (0 of 20) and its head does not turn (gain 0.00). How specific each part is was measured
+against controls, not assumed — and some of it is less specific than it looks (see
+[Controls](#controls-and-statistics)).
 
 ## What is the fly's, and what is ours
 
@@ -36,7 +42,7 @@ the docs.
 | Which neurons answer looming, which answer rotation | Camera → optic flow → motion detector input (`motion.py`) |
 | The giant fiber's decision to fire | The shape of the flinch (honk, look, crouch, back off) |
 | Which way DNp15 and DNa02 say to turn | The gains, the smoothing, and that the body follows the head |
-| Where each motion detector looks (FlyWire's column map) | The approach-speed gate that spares a petting hand |
+| Where each motion detector looks (FlyWire's column map) | The approach-speed gate that spares a petting hand — so the startle's speed tuning is ours |
 
 The brain is not tuned, retrained or edited. Its input is shaped like a fly's sensory neurons
 would be, and its output is read from the neurons the literature says carry it.
@@ -69,6 +75,16 @@ microduck_rl/       the MuJoCo simulator (unmodified)
 duckophila/         this
 ```
 
+> **Until [pollen-robotics/microduck#513](https://github.com/pollen-robotics/microduck/pull/513) is merged,
+> check out its branch in `microduck/`.** Without it the simulated duck stands but never walks
+> (`duck-sim` loads an obsolete gait on a robot model the current one was not trained on), and the
+> body-steering experiments have nothing to steer:
+>
+> ```sh
+> git -C microduck fetch https://github.com/first-it-consulting/microduck.git duck-sim-walks
+> git -C microduck switch -c duck-sim-walks FETCH_HEAD
+> ```
+
 ```sh
 cd duckophila
 uv sync
@@ -86,6 +102,7 @@ brain before trusting anything built on it:
 ```sh
 .venv/bin/python -I experiments/sugar_mn9.py 30   # the paper's own check, in its own simulator (Brian2)
 .venv/bin/python -I experiments/replay.py         # expect: identical == brian2 spikes
+uv run --with pytest pytest -q tests              # what CI runs on Linux, plus what needs the columns
 ```
 
 ## Run it by hand
@@ -129,6 +146,44 @@ the view. `MICRODUCK=` and `DUCK_SIM_RL=` point `sim/duck-sim` elsewhere.
   `tof_scenes.py` (the startle); `optomotor_dn.py`, `optomotor_replay.py`, `columns_orient.py`,
   `retinotopy_check.py` (the motion pathway); `ego_nod.py`, `ego_lag.py`, `ego_flow_check.py`
   (the efference copy).
+
+## Controls and statistics
+
+Every claim above, repeated, against brains that are wired wrong (`experiments/controls.py`,
+open loop, 20 seeds; `experiments/closed_loop_stats.py`, the whole robot stack, 20 throws).
+95% confidence intervals.
+
+| | intact | rewired¹ | signs flipped | input null² |
+|---|---|---|---|---|
+| startle, ball 0.6–1.5 m/s (open loop) | **1.00** [0.91, 1.00] | 0.00 | 0.00 | 0.50 [0.35, 0.65] |
+| startle, ball 0.2 m/s (open loop) | 0.00 [0.00, 0.09] | 0.00 | 0.00 | 0.00 |
+| startle, ball 1.5 m/s (closed loop) | **0.95** [0.76, 0.99] | 0.00 [0.00, 0.16] | | |
+| startle, hand 0.2 m/s (closed loop) | 0.00 [0.00, 0.16] | 0.00 | | |
+| giant fibre on the ball's side (share of its spikes) | 0.58 [0.56, 0.59] open · 0.57 [0.45, 0.66] closed | — | — | 0.54 [0.52, 0.56] |
+| false startle walking at a wall, 0.3 m/s | 6/20 | 0/20 | 0/20 | 2/20 |
+| head optomotor gain (closed loop) | **0.28** [0.24, 0.32] | 0.00 | | |
+| DNp15 follows rotation (camera view) | **yes**: rank 1 of 383 DN pairs³ | no | no | |
+| DNa02 follows rotation | whole eye yes · camera view no | no | no | |
+
+¹ each connection keeps its source neuron and weight, gets a random target; every neuron keeps its
+number of inputs and outputs. ² the intact brain, with the looming input sent to as many *other*
+visual projection neurons. ³ of all descending neuron types with one neuron a side, 13 follow
+rotation; DNp15 follows most strongly.
+
+What this says, and does not:
+
+- **The behaviours need the connectome.** Rewired or sign-flipped, the brain stays active but
+  nothing reaches the descending neurons: no startle, no turning.
+- **The optomotor readout is specific.** DNp15 is the strongest follower of 383 candidates.
+- **The startle is only partly specific.** Driving LPLC2/LC4 startles every time; driving the same
+  number of random visual neurons still startles half the time. The giant fibre listens to more
+  than the looming detectors, at least in this model.
+- **The side is weak.** The giant fibre on the ball's side fires only slightly more (58%), and nearly
+  as much with random input (54%). An earlier version of this README said a ball from the left
+  fires the left giant fibre; that overstated it.
+- **The speed tuning is ours.** No startle at 0.2 m/s comes from our approach-speed gate, not the
+  fly (the input null shows the same cut). At 2 m/s the encoder misses 30% of throws.
+- **There are false alarms.** Walking towards a wall at 0.3 m/s startles 6 times in 20.
 
 ## What does not work yet
 

@@ -14,8 +14,11 @@ looming object drives many neurons, a small one few — the size dependence the 
 Real receptive fields would be better; this is v1. The ToF sees 45 degrees straight ahead, so this
 also stretches the fly's frontal view over each whole eye.
 
-**Arrival is not approach.** A zone whose range halves in one frame saw an occluder slide in,
-not something coming at it (at 1.5 m/s, 30 cm away, a frame closes 10 cm, a third); it restarts.
+**Arrival is not approach.** A zone whose range halves in one frame, or closes faster than any
+throw (`max_closing`, 3.75 m/s: 25 cm in a frame), saw an edge slide in, not something coming at
+it; it restarts. (Only the halving rule at first: a ball drifting sideways while it approached
+slowly slid its edge across zones 50 cm at a time, read as 7.5 m/s, and startled the duck in half
+of the trials — found by `experiments/controls.py`.)
 
 **Only fast approach drives — a duck choice, not a fly fact.** Anything that ends near the duck
 has a short time-to-contact, a hand reaching to pet it included. In the fly, fast looming is what
@@ -50,6 +53,8 @@ class Params:
     tau_k: float = 2.0          # 1/s: tau^-1 at which a zone drives half of max_rate
     tau_min: float = 0.3        # 1/s: below this, no drive (sensor noise, slow drift)
     v_min: float = 0.4          # m/s: slower approaches do not drive (see the module doc)
+    max_closing: float = 3.75   # m/s: a zone closing faster than this in one frame saw something
+                                # *arrive* (an edge sliding in), not approach — 0.25 m per 15 Hz frame
     jump: float = 0.5           # a zone whose range falls below this fraction of the last in one
                                 # frame saw something *arrive* (an edge, an occluder), not approach
     max_rate: float = 150.0     # Hz, the reference model's default drive
@@ -90,7 +95,8 @@ class LoomingEncoder:
             ok &= ~np.asarray(floor, bool)
         d = np.where(ok, d, np.nan)
         # an occluder sliding in starts that zone's history over: arrival is not approach
-        arrived = d < p.jump * self._last
+        dt_frame = (t - self._hist[-1][0]) if self._hist else 1.0 / 15
+        arrived = (d < p.jump * self._last) | (self._last - d > p.max_closing * max(dt_frame, 1e-3))
         for _, h in self._hist:
             h[arrived] = np.nan
         self._last = d

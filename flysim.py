@@ -232,6 +232,22 @@ class FlyBrain:
     def n(self) -> int:
         return len(self.ids)
 
+    def null(self, kind: str, seed: int = 0) -> 'FlyBrain':
+        """A control brain: the same neurons, the same synapse weights, the same number of inputs and
+        outputs per neuron — wired wrong, so a behaviour that survives is not the connectome's.
+
+        `shuffled`: every connection keeps its presynaptic neuron and its weight, and gets a target
+        drawn from a random permutation of all targets — each neuron's in- and out-degree preserved
+        (a configuration-model null). `flipped`: every sign inverted, excitation for inhibition."""
+        b = self.copy()
+        if kind == 'shuffled':
+            b.indices = np.random.default_rng(seed).permutation(self.indices).astype(np.int32)
+        elif kind == 'flipped':
+            b.weights = -self.weights
+        elif kind != 'intact':
+            raise ValueError(kind)
+        return b
+
     def copy(self) -> 'FlyBrain':
         """An independent brain in the same state — for many trials off one load."""
         b = FlyBrain.__new__(FlyBrain)

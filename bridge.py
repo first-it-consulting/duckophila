@@ -416,6 +416,8 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.split('\n')[0])
     ap.add_argument('--duck', default='duck-a')
     ap.add_argument('--steer', choices=('head', 'body', 'dna02'), help='the optomotor reflex (step 2); needs the camera')
+    ap.add_argument('--brain', choices=('intact', 'shuffled', 'flipped'), default='intact',
+                    help='a null brain for controls: wiring shuffled, or signs flipped (flysim.FlyBrain.null)')
     ap.add_argument('--no-startle', action='store_true', help='leave step 1 out: no flinch (the giant fiber is still read)')
     ap.add_argument('--no-viz', action='store_true')
     ap.add_argument('--record', type=Path, help='also save the view to this .rrd file (replay: rerun FILE.rrd)')
@@ -426,6 +428,9 @@ def main():
     print('loading the brain (FlyWire 783)…', flush=True)
     brain = FlyBrain(783, seed=0)
     brain.run(1)  # jit
+    if args.brain != 'intact':
+        brain = brain.null(args.brain, seed=1)
+        print(f'NULL BRAIN: {args.brain} (a control: same neurons and weights, wired wrong)', flush=True)
     enc = LoomingEncoder()
     gf = {s: [brain.index[f] for f in N.ids(N.GIANT_FIBER, s)] for s in ('left', 'right')}
     view = None if args.no_viz and not args.record else View(brain, live=not args.no_viz, record=args.record)
