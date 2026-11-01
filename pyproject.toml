@@ -22,6 +22,10 @@ reference = ["brian2>=2.10", "joblib>=1.6", "scipy>=1.18"]
 paper = [
     "matplotlib>=3.11.2",
 ]
+webrtc = [
+    "aiortc>=1.15.0",
+    "websockets>=17.4",
+]
 
 [tool.uv]
 default-groups = ["reference"]

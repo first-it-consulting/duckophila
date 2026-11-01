@@ -157,6 +157,14 @@ the twin walks (\SI{0.06}{m/s} for \SI{0.15}{m/s} asked) and turns (\SI{50}{\deg
 forward speed, a dead band below $\sim$\SI{0.55}{rad/s} of yaw on the spot, and an occasional failure to
 take a first slow step are properties of the twin that our controllers have to live with.
 
+\paragraph{Off the robot.} On hardware the brain runs on a laptop and reaches the robot over the
+WebRTC session the robot publishes: the camera as an H.264 track and the robot's JSON-RPC interface
+over a data channel (\texttt{link.py}). WebRTC frames carry no capture time, so each is dated from
+the RTCP sender reports and a pair of robot clock readings onto the robot's monotonic clock, the one
+its state stream is stamped with; frame and state then pair without the network delay. Against the
+simulated robot's media daemon, following, the startle and the head reflex (gain 0.24 [0.19, 0.28],
+against 0.28 locally) work over this path.
+
 \subsection{Startle: depth sensor to looming detectors}
 
 The giant fibre (DNp01, one per side) receives its two largest excitatory inputs from LPLC2 and LC4

@@ -139,6 +139,24 @@ DUCK_SIM_CAMERAS=a sim/duck-sim             # the duck, its camera, a ball and a
 sim/duck-sim down
 ```
 
+**A duck on your network, from a laptop** — the WebRTC session the robot publishes (`link.py`;
+`uv sync --group webrtc` once):
+
+```sh
+.venv/bin/python -I bridge.py --link ws://<duck>:8443 --steer follow
+.venv/bin/python -I link.py ws://<duck>:8443          # a probe: frame rate, state, depth, delay
+.venv/bin/python -I experiments/ego_lag.py --link ws://<duck>:8443   # the camera's delay, walking
+```
+
+One session carries it all: the camera as the H.264 video track, and `robot.state`, `tof.stream`
+and the intents over the `control` datachannel, which `mediad` pipes to the same daemons. A WebRTC
+frame has no capture stamp, so each is dated from the RTCP sender reports and `media.video`'s clock
+pair onto the robot's own monotonic clock — the clock `robot.state` carries — and the network's
+delay drops out of pairing frames with states. Against the twin's `mediad`, over WebRTC: following
+kept up for a whole run (median error 9°), 3 of 3 throws startled, and the head reflex's gain was
+0.24 [0.19, 0.28] (0.28 [0.24, 0.32] on the local sockets); the efference copy's correlation peaks
+at the same offset as locally (−0.04 s), a little lower (r 0.65 against 0.86) after H.264.
+
 `bridge.py --dry` sends the duck nothing, `--no-viz` skips the viewer, `--record FILE.rrd` saves
 the view. `MICRODUCK=` and `DUCK_SIM_RL=` point `sim/duck-sim` elsewhere.
 
@@ -159,6 +177,7 @@ the view. `MICRODUCK=` and `DUCK_SIM_RL=` point `sim/duck-sim` elsewhere.
   where each LC10a looks, read off its inputs on FlyWire's column map.
 - `geometry.py` — which depth zones see the floor, and the duck's own motion, from `robot.state`.
 - `bridge.py` — the loop: the robot's own sockets in, the brain, intents out; the Rerun view.
+- `link.py` — the same, over WebRTC from anywhere on the duck's network.
 - `learning.py` — **ours**: the mushroom body made to learn — cues as sparse Kenyon-cell sets, a
   dopamine plasticity rule on Kenyon cell → MBON synapses, value from the MBONs, petting as reward.
 - `throw.py`, `drum.py`, `lead.py`, `pet.py` — the ball, the striped drum, the targets that lead,
@@ -244,8 +263,9 @@ the turn one 10° left gets (−1.8 against +5.3 Hz). Every
   The depth sensor is the looming sense.
 - **The simulator's gait**: it walks at ~40% of the speed asked, ignores small turns on the spot
   and sometimes will not take a first slow step; the body steers while walking at 0.1 m/s.
-- **No real duck yet.** On hardware, the camera/state timing has to be measured again
-  (`experiments/ego_lag.py`), and the brain belongs on a laptop reaching the duck over WebRTC.
+- **No real duck yet.** The brain is ready to reach one from a laptop over WebRTC (`--link`,
+  below), tested against the twin's real `mediad`; on hardware the camera's own delay has to be
+  measured again (`experiments/ego_lag.py --link`).
 - **A lost target stays lost.** With nothing in view the duck stands; the camera's ±22.5° is all
   the field it has to find it again in. LC10a's preference for *moving* objects is not modelled.
 - **The model's mushroom body has no code of its own** (`experiments/mb_check.py`). Any input
@@ -291,6 +311,12 @@ the turn one 10° left gets (−1.8 against +5.3 Hz). Every
   time, and parallelising per step was worse. A closed-form bound on how high a neuron's voltage
   can still climb lets the ones that cannot fire sleep until their next input — exactly.
 - `mediad` serves one camera frame per connection, and sometimes hands out the same render twice.
+- **WebRTC datachannel messages are neither one JSON object each nor line-aligned.** A large reply
+  comes in pieces and objects need not end in a newline, so a reader that splits on newlines loses
+  most of `robot.state`. `link.py` decodes objects off the front of a buffer.
+- On macOS, PyAV (for H.264) and OpenCV each bundle their own FFmpeg, and the Objective-C runtime
+  warns that two classes are defined twice. Harmless in every run so far; worth knowing if
+  something crashes oddly.
 
 ## Paper
 

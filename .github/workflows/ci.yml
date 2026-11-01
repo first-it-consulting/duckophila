@@ -16,4 +16,4 @@ jobs:
             https://raw.githubusercontent.com/flyconnectome/flywire_annotations/main/supplemental_files/Supplemental_file1_neuron_annotations.tsv
       - name: the reference model's own run (1 trial), to replay against
         run: .venv/bin/python -I experiments/sugar_mn9.py 1
-      - run: uv run --with pytest pytest -q tests
+      - run: uv run --group webrtc --with pytest pytest -q tests

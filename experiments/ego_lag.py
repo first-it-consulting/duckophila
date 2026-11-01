@@ -1,6 +1,12 @@
 """Cross-correlate measured image flow with the predicted self-motion flow over time lags, to find
 the camera/state timing offset and catch a sign error. Frames are keyed by `captured_at`, states
-by arrival — what `Body.ego_at` pairs — so with the pairing right the peak sits at lag 0. Walk straight, drum parked."""
+by arrival — what `Body.ego_at` pairs — so with the pairing right the peak sits at lag 0. Walk straight, drum parked.
+
+    .venv/bin/python -I experiments/ego_lag.py                         # the robot's local sockets
+    .venv/bin/python -I experiments/ego_lag.py --link ws://<duck>:8443 # over WebRTC (link.py)
+
+Over WebRTC frames are dated by RTCP on the robot's monotonic clock and states by their t_ns, so the
+peak's lag is what `LINK_FRAME_LAG_S` should be."""
 import json, socket, sys, threading, time
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -8,20 +14,30 @@ import cv2, numpy as np
 from bridge import Body, Camera, STATE
 from motion import MotionEncoder
 
-body = Body(STATE / 'duck-a.sock')
+LINK = sys.argv[sys.argv.index('--link') + 1] if '--link' in sys.argv else None
+if LINK:
+    from link import RtcLink
+    where = frame_at = RtcLink(LINK)
+else:
+    where, frame_at = STATE / 'duck-a.sock', STATE / 'duck-a-frame.sock'
+body = Body(where)
 states = []
 orig = body._track
 def track(st):
-    orig(st); states.append((time.time(), body.ego()))   # arrival time, as Body.ego_at keys them
+    orig(st)
+    key = st['t_ns'] / 1e9 if body.robot_clock and st.get('t_ns') else time.time()   # as Body.ego_at keys them
+    states.append((key, body.ego()))
 body._track = track
-cam = Camera.__new__(Camera); cam.path = STATE / 'duck-a-frame.sock'
+cam = Camera.__new__(Camera); cam.path = frame_at
 enc = MotionEncoder(); p = enc.params
-d = socket.socket(socket.AF_UNIX); d.connect(str(STATE / 'duck-a.sock')); df = d.makefile('w')
+from bridge import connect
+mover = connect(where)
+threading.Thread(target=lambda: [None for _ in mover.lines()], daemon=True).start()
 stop = False
 def walk():
     while not stop:
         v = 0.25 if time.time() - t_start < 2 else 0.15    # velstand often will not take a slow first step
-        df.write(json.dumps({'jsonrpc': '2.0', 'method': 'robot.move', 'params': {'vx': v, 'vy': 0, 'vyaw': 0}}) + '\n'); df.flush(); time.sleep(0.05)
+        mover.send('robot.move', {'vx': v, 'vy': 0, 'vyaw': 0}); time.sleep(0.05)
 t_start = time.time()
 threading.Thread(target=walk, daemon=True).start()
 time.sleep(4)
@@ -35,7 +51,7 @@ while time.time() < end:
         frames.append(((prev[1] + t) / 2, fl))   # capture time, as the bridge pairs them
     prev = (s, t, wall)
 stop = True; time.sleep(0.1)
-df.write(json.dumps({'jsonrpc': '2.0', 'method': 'robot.move', 'params': {'vx': 0, 'vy': 0, 'vyaw': 0}}) + '\n'); df.flush()
+mover.send('robot.move', {'vx': 0, 'vy': 0, 'vyaw': 0})
 st = [(w, e) for w, e in states if e is not None]
 st_t = np.array([w for w, _ in st])
 print(f'{len(frames)} frame pairs, {len(st)} states')

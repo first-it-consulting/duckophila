@@ -9,6 +9,7 @@
     .venv/bin/python -I bridge.py --no-viz     # without the viewer
     .venv/bin/python -I bridge.py --dry        # brain and view only; send the duck nothing
     .venv/bin/python -I bridge.py --record run.rrd   # and save the view to replay or share
+    .venv/bin/python -I bridge.py --link ws://duck.local:8443 --steer follow   # a duck on the LAN, over WebRTC
 
 **Step 1, startle.** Every `tof.frame` from `tofd` goes through `LoomingEncoder` onto LPLC2/LC4;
 a giant-fiber spike is a startle. The startle is composed here from intents `robotd` already has
@@ -45,8 +46,10 @@ flinch outranks steering while it lasts.
 
 The brain runs on the ToF clock (~15 Hz) for exactly the time since the previous frame, with the
 latest camera rates; the camera thread keeps them fresh at ~30 Hz. The sockets and the JSON-RPC
-are the robot's own, so the same script reaches a real duck's local sockets. (A brain on a laptop
-next to a real duck should take the camera over WebRTC instead; that is for when we get there.)
+are the robot's own, so the same script runs on a duck against its local sockets — or, with
+`--link ws://<duck>:8443`, anywhere on its network over the WebRTC session the robot publishes
+(`link.py`): the camera as an H.264 track, everything else over the `control` datachannel, and
+each frame dated on the robot's clock so the efference copies still pair it with its own state.
 
 The view (Rerun) shows every neuron at its real position in the brain, lit when it spikes, beside
 the depth frame, the per-zone looming signal, the camera and its flow, and the descending neurons.
@@ -89,6 +92,11 @@ HEAD_TO_BODY = float(os.environ.get('DUCKOPHILA_HEAD_TO_BODY', 1.0))
 # Measured in duck-sim (`experiments/ego_lag.py`: the walking efference copy correlates best,
 # r = 0.90, with the state 0-0.02 s before the stamp); a real duck's pipeline needs its own.
 FRAME_LAG_S = float(os.environ.get('DUCKOPHILA_FRAME_LAG_S', 0.01))
+# Over WebRTC (`--link`) a frame is dated by RTCP on the robot's own clock, and states by their t_ns,
+# so the network drops out. Measured in duck-sim with `ego_lag.py --link`: the correlation peaks with
+# the state 0.04 s before the frame's date (r = 0.65; locally, same run, also 0.04 s, r = 0.86 — the
+# H.264 track costs the flow some precision). A real duck's camera pipeline needs its own.
+LINK_FRAME_LAG_S = float(os.environ.get('DUCKOPHILA_LINK_FRAME_LAG_S', 0.04))
 STEER_TAU_S = {'follow': float(os.environ.get('DUCKOPHILA_FOLLOW_TAU_S', 0.4))}   # smoothing of the R - L difference
 STEER_MAX = 1.0          # rad/s
 HEAD_YAW_MAX = 0.9       # rad either side of straight ahead
@@ -123,11 +131,16 @@ class Rpc:
             yield json.loads(raw)
 
 
+def connect(where):
+    """A JSON-RPC connection: a unix socket's path, or a channel of a WebRTC session (`link.RtcLink`)."""
+    return Rpc(where) if isinstance(where, Path) else where.channel()
+
+
 class Duck:
     """What a startle and a turn are, as intents. Replies on the robot socket are drained and ignored."""
 
-    def __init__(self, path: Path):
-        self.rpc = Rpc(path)
+    def __init__(self, where):
+        self.rpc = connect(where)
         self.flinching_until = 0.0
         threading.Thread(target=lambda: [None for _ in self.rpc.lines()], daemon=True).start()
 
@@ -168,13 +181,15 @@ class Body:
     floor filter and the efference copies need it whether or not the duck is being told anything.
     """
 
-    def __init__(self, path: Path):
+    def __init__(self, where):
+        # over WebRTC, states are keyed by the robot's clock (t_ns), as the frames are; locally by arrival
+        self.robot_clock = not isinstance(where, Path)
         self.state: dict = {}
         self.geometry: Geometry | None = None
         self.head_yaw = None
         self._hist: list = []
         self._egos: list = []
-        rpc = Rpc(path)
+        rpc = connect(where)
         rpc.send('robot.model', request=True)
         lines = rpc.lines()
         for msg in lines:
@@ -211,7 +226,7 @@ class Body:
         # instead it is ~90 ms out, a third of a ~3 Hz stride, and the prediction does not correlate
         e = self.ego()
         if e is not None:
-            now = time.time()
+            now = st['t_ns'] / 1e9 if self.robot_clock and st.get('t_ns') else time.time()
             self._egos = [x for x in self._egos if now - x[0] < 1.0] + [(now, e)]
 
     def velocity(self) -> np.ndarray:
@@ -252,7 +267,8 @@ class Body:
         return rot, np.asarray(cam['pos'], float), down, height, self.velocity(), self.camera_pitch_roll_rate()
 
     def ego_at(self, unix_time: float):
-        """`ego()` as it was at `unix_time` (nearest state by arrival), or None."""
+        """`ego()` as it was at `unix_time` (nearest state by arrival — or, over WebRTC, by the
+        robot's monotonic clock, which is what a frame's time is then on), or None."""
         egos = self._egos
         if not egos:
             return None
@@ -270,8 +286,9 @@ class Body:
 class Camera:
     """`mediad`'s local frames through `MotionEncoder`, on a thread; the latest rates on demand."""
 
-    def __init__(self, path: Path, body: Body, efference: bool = True, follow: bool = False):
-        self.path, self.body, self.efference = path, body, efference
+    def __init__(self, where, body: Body, efference: bool = True, follow: bool = False):
+        self.path, self.body, self.efference = where, body, efference
+        self.lag = FRAME_LAG_S if isinstance(where, Path) else LINK_FRAME_LAG_S
         if follow:
             from follow import FollowEncoder
             self.enc = FollowEncoder()
@@ -285,6 +302,11 @@ class Camera:
         threading.Thread(target=self._run, daemon=True).start()
 
     def _frame(self):
+        if not isinstance(self.path, Path):
+            while True:                   # until the first RTCP sender report, a frame has no date: skip it
+                grey, t, _ = self.path.next_frame()
+                if t is not None:
+                    return grey, t
         s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         s.connect(str(self.path))
         f = s.makefile('rwb')
@@ -304,14 +326,14 @@ class Camera:
         while True:
             try:
                 grey, t = self._frame()
-            except (OSError, RuntimeError, ValueError) as e:
+            except (OSError, RuntimeError, ValueError, TimeoutError) as e:
                 print(f'camera: {e}; retrying', flush=True)
                 time.sleep(1.0)
                 continue
             w = self.body.head_yaw_rate_deg() if self.efference else 0.0
             # walking efference copy: opt-in until experiments/ego_flow_check.py shows it predicts the floor
             # the flow spans this frame and the last, so the state from between their captures
-            ego = None if os.environ.get('DUCKOPHILA_NO_EGO') else self.body.ego_at((t + self._t_prev) / 2 - FRAME_LAG_S)
+            ego = None if os.environ.get('DUCKOPHILA_NO_EGO') else self.body.ego_at((t + self._t_prev) / 2 - self.lag)
             self._t_prev = t
             self.rates = self.enc.update(grey, t, head_yaw_rate_deg=w, ego=ego)
             self.grey = grey
@@ -445,6 +467,7 @@ def main():
     ap.add_argument('--record', type=Path, help='also save the view to this .rrd file (replay: rerun FILE.rrd)')
     ap.add_argument('--trace', type=Path, help='save every brain step (spikes, key neurons, depth, camera) to this .npz, for video/make_video.py')
     ap.add_argument('--dry', action='store_true', help='do not send the duck anything')
+    ap.add_argument('--link', metavar='WS_URL', help="a duck on the network, over WebRTC: its signalling server, ws://<duck>:8443")
     ap.add_argument('--learn', action='store_true', help='stage 4: follow only what it was petted for (with --steer follow; pet.py)')
     args = ap.parse_args()
 
@@ -466,9 +489,17 @@ def main():
     enc = LoomingEncoder()
     gf = {s: [brain.index[f] for f in N.ids(N.GIANT_FIBER, s)] for s in ('left', 'right')}
     view = None if args.no_viz and not args.record else View(brain, live=not args.no_viz, record=args.record)
-    duck = None if args.dry else Duck(STATE / f'{args.duck}.sock')
-    body = Body(STATE / f'{args.duck}.sock')
-    camera = (Camera(STATE / f'{args.duck}-frame.sock', body, efference=args.steer == 'dna02', follow=args.steer == 'follow')
+    if args.link:
+        from link import RtcLink
+        link = RtcLink(args.link)
+        robot_at, tof_at, frame_at = link, link, link
+        print(f'WebRTC session with {args.link}: camera rotated {link.rotate}°, frames dated on the robot clock'
+              + ('' if link.clock_offset_ns is not None else ' — NOT: this mediad gives no clocks'), flush=True)
+    else:
+        robot_at, tof_at, frame_at = STATE / f'{args.duck}.sock', STATE / f'{args.duck}-tof.sock', STATE / f'{args.duck}-frame.sock'
+    duck = None if args.dry else Duck(robot_at)
+    body = Body(robot_at)
+    camera = (Camera(frame_at, body, efference=args.steer == 'dna02', follow=args.steer == 'follow')
               if args.steer else None)
     steer_dn = 'DNa02' if args.steer in ('dna02', 'follow') else 'DNp15'
     pair = {s: [brain.index[f] for f in N.ids(steer_dn, s)] for s in ('left', 'right')}
@@ -477,7 +508,7 @@ def main():
     import signal
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))       # so `kill` still writes the trace
     try:
-        loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, learner)
+        loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, learner, tof_at)
     finally:
         if trace:
             trace.save()
@@ -509,9 +540,9 @@ def serve_petting(learner):
     threading.Thread(target=srv.serve_forever, daemon=True).start()
 
 
-def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, learner=None):
+def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, learner=None, tof_at=None):
     head = None
-    tof = Rpc(STATE / f'{args.duck}-tof.sock')
+    tof = connect(tof_at or STATE / f'{args.duck}-tof.sock')
     tof.send('tof.stream', request=True)
     last_t, last_startle, frames, busy = None, -1e9, 0, 0.0
     diff = 0.0                       # smoothed DNa02 R - L, Hz
