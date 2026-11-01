@@ -12,6 +12,8 @@ The wrapper, on each physics step of a model that has the prop (`make_scene.py`)
       {"op": "drum", "pos": [x, y, z], "yaw": rad} -> {}  the striped drum's centre and rotation
       {"op": "where"}                    -> {"tof": {"pos": [...], "xmat": [9 floats]}}
                                             the first duck's ToF site, so a thrower can aim
+      {"op": "props"}                    -> {"prop": [x, y, z], "drum": {"pos": [...], "quat": [...]}}
+                                            where the ball and the drum are, for a recorder
 Any other Python (the system python3 `duck-sim` knocks ports with) finds no mujoco and is untouched.
 """
 import os
@@ -44,6 +46,12 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                             _state['drum'] = ([float(v) for v in req['pos']],
                                               [math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2)])
                             ans = {}
+                        elif req.get('op') == 'props':
+                            d = _state['data']
+                            ans = {'prop': d.mocap_pos[_state['mocap']].tolist()}
+                            if _state.get('drum_mocap', -1) >= 0:
+                                k = _state['drum_mocap']
+                                ans['drum'] = {'pos': d.mocap_pos[k].tolist(), 'quat': d.mocap_quat[k].tolist()}
                         elif req.get('op') == 'where':
                             m, d = _state['model'], _state['data']
                             sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, 'tof')

@@ -303,6 +303,40 @@ class Camera:
                 self.fps, n, t0 = 30 / (time.monotonic() - t0), 0, time.monotonic()
 
 
+class Trace:
+    """Every brain step, for `video/make_video.py`: wall time, which neurons spiked, the key
+    descending neurons' rates, the depth frame, a camera thumbnail, startles and steering."""
+
+    KEY = (N.GIANT_FIBER, 'DNp15', 'DNa02', 'LPLC2')
+
+    def __init__(self, path: Path, brain: FlyBrain):
+        self.path, self.rows = path, []
+        self.key = {f'{c}_{s[0].upper()}': [brain.index[f] for f in N.ids(c, s)] for c in self.KEY for s in ('left', 'right')}
+
+    def add(self, counts, ms, frame, camera, note, head, steer):
+        thumb = camera.grey[::4, ::4].copy() if camera is not None and camera.grey is not None else None
+        d = np.where(np.isin(frame['status'], (5, 9)), np.asarray(frame['distance_mm'], np.int16), 0)
+        self.rows.append((time.time(), np.flatnonzero(counts).astype(np.int32), counts[np.flatnonzero(counts)].astype(np.int16),
+                          {k: counts[v].sum() * 1000.0 / ms / len(v) for k, v in self.key.items()},
+                          d, thumb, note or '', None if head is None else float(head[2]), steer))
+
+    def save(self):
+        r = self.rows
+        if not r:
+            return
+        spk = [x[1] for x in r]
+        thumbs = [x[5] for x in r]
+        shape = next((t.shape for t in thumbs if t is not None), (1, 1))
+        np.savez_compressed(
+            self.path, t=np.array([x[0] for x in r]),
+            spk=np.concatenate(spk), spk_n=np.array([len(x) for x in spk]), spk_c=np.concatenate([x[2] for x in r]),
+            key_names=np.array(list(self.key)), key=np.array([[x[3][k] for k in self.key] for x in r]),
+            depth=np.array([x[4] for x in r]), camera=np.array([t if t is not None else np.zeros(shape, np.uint8) for t in thumbs]),
+            note=np.array([x[6] for x in r]), head_yaw=np.array([np.nan if x[7] is None else x[7] for x in r]),
+            steer=np.array([np.nan if x[8] is None else x[8] for x in r]))
+        print(f'trace: {len(r)} steps -> {self.path}', flush=True)
+
+
 class View:
     """The live brain in Rerun."""
 
@@ -385,6 +419,7 @@ def main():
     ap.add_argument('--no-startle', action='store_true', help='leave step 1 out: no flinch (the giant fiber is still read)')
     ap.add_argument('--no-viz', action='store_true')
     ap.add_argument('--record', type=Path, help='also save the view to this .rrd file (replay: rerun FILE.rrd)')
+    ap.add_argument('--trace', type=Path, help='save every brain step (spikes, key neurons, depth, camera) to this .npz, for video/make_video.py')
     ap.add_argument('--dry', action='store_true', help='do not send the duck anything')
     args = ap.parse_args()
 
@@ -399,8 +434,19 @@ def main():
     camera = Camera(STATE / f'{args.duck}-frame.sock', body, efference=args.steer == 'dna02') if args.steer else None
     steer_dn = 'DNa02' if args.steer == 'dna02' else 'DNp15'
     pair = {s: [brain.index[f] for f in N.ids(steer_dn, s)] for s in ('left', 'right')}
-    head = None
 
+    trace = Trace(args.trace, brain) if args.trace else None
+    import signal
+    signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))       # so `kill` still writes the trace
+    try:
+        loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace)
+    finally:
+        if trace:
+            trace.save()
+
+
+def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace):
+    head = None
     tof = Rpc(STATE / f'{args.duck}-tof.sock')
     tof.send('tof.stream', request=True)
     last_t, last_startle, frames, busy = None, -1e9, 0, 0.0
@@ -471,6 +517,8 @@ def main():
 
         if view:
             view.frame(t, f['distance_mm'], f['status'], enc.inv_tau, counts, ms, note, floor, camera, vyaw)
+        if trace:
+            trace.add(counts, ms, f, camera, note, head, vyaw)
         if frames % (15 if os.environ.get("DUCKOPHILA_VERBOSE") else 150) == 0:
             line = (f'{t:8.2f}s  {frames} frames, brain {busy / frames * 1000:.1f} ms per frame, '
                     f'{brain.active} neurons active, '

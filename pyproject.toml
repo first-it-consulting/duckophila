@@ -15,6 +15,8 @@ dependencies = [
 ]
 
 [dependency-groups]
+# make_video.py re-renders a recorded run; same MuJoCo as microduck_rl
+video = ["mujoco==3.10.0"]
 # the reference model, for experiments/sugar_mn9.py, replay.py and compare.py
 reference = ["brian2>=2.10", "joblib>=1.6", "scipy>=1.18"]
 
