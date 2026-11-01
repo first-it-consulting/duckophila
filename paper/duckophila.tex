@@ -1,0 +1,371 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[margin=2.2cm]{geometry}
+\usepackage[T1]{fontenc}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath}
+\usepackage{siunitx}
+\usepackage{xcolor}
+\usepackage[hidelinks]{hyperref}
+\usepackage{caption}
+\captionsetup{font=small,labelfont=bf}
+
+\title{\textbf{Duckophila: a whole-brain \emph{Drosophila} connectome model in closed loop with a bipedal robot}\\[0.4em]
+\large Technical report and preprint draft}
+\author{Helge Winkler\\\small\texttt{hw@alphasix.de}\\\small\url{https://github.com/first-it-consulting/duckophila}}
+\date{November 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We connect the complete connectome-derived leaky integrate-and-fire model of the adult \emph{Drosophila
+melanogaster} brain (FlyWire, 138{,}639 neurons, 54.5 million synapses; Shiu et al.\ 2024) to a small
+bipedal robot, Pollen Robotics' microduck, running its production control software against a MuJoCo
+simulation of its body. The robot's time-of-flight depth sensor is translated into input to the fly's
+looming-sensitive visual projection neurons (LPLC2, LC4); its camera, through dense optic flow, into input
+to the fly's elementary motion detectors (T4/T5), each placed at its own visual column using FlyWire's
+column map. Motor commands are read out from identified descending neurons. Without any tuning of the
+connectome, the model (i) fires its giant fibre (DNp01) to objects approaching the robot's face, on the
+side the object approaches from, and (ii) produces a syndirectional optomotor response in DNp15/DNHS1 that
+turns the robot's head---and, through a coupling rule of ours, its walking body---with a rotating striped
+drum, at a closed-loop gain of 0.3--0.4. To run the model in closed loop we reimplemented it as a stepped
+simulator that reproduces the reference Brian2 implementation spike for spike and runs faster than real
+time on one CPU core, using an exact closed-form bound that lets neurons unable to fire before their next
+input remain unsimulated. We report what the connectome contributes, what our hand-written sensory and
+motor interfaces contribute, and several failure modes found on the way: a dropped-input rule of the
+reference model, scrambled retinotopy destroying LPLC2 selectivity, the robot's own gait dominating its
+optic flow, and a field of view too narrow for the canonical steering neuron DNa02. Code, experiments and
+a recorded demonstration are open source.
+\end{abstract}
+
+\section{Introduction}
+
+Complete synaptic wiring diagrams of an adult insect brain now exist. FlyWire reconstructed the whole
+brain of a female \emph{Drosophila} \cite{dorkenwald2024}, annotated every neuron with a cell type
+\cite{schlegel2024}, and mapped the visual system to its retinotopic columns \cite{matsliah2024}. Shiu et
+al.\ \cite{shiu2024} showed that a leaky integrate-and-fire (LIF) network built directly from this
+connectome---every synapse at one shared weight, its sign taken from the predicted neurotransmitter---
+predicts sensorimotor pathways that were then confirmed experimentally, for example from sugar-sensing
+gustatory neurons to the proboscis motor neuron MN9.
+
+That model has so far been driven by prescribed stimulation and read out offline. Here we ask a
+different question: what does it do when its sensory neurons are driven by a robot's sensors, its
+descending neurons move that robot, and the consequences of those movements come back through the
+sensors---in closed loop, in real time? The robot is the microduck, a 15-servo bipedal robot from Pollen
+Robotics with an 8$\times$8 time-of-flight (ToF) depth sensor and a head camera, controlled by
+reinforcement-learned locomotion policies. We do not replace the robot's locomotion: the fly brain sits
+above it, as a behaviour source, the way descending neurons sit above the fly's ventral nerve cord.
+
+Our contribution is an engineering study with three parts: (1) a stepped, exact and faster-than-real-time
+reimplementation of the Shiu et al.\ model; (2) sensory interfaces that respect the fly's own anatomy---in
+particular a retinotopic placement of every T4/T5 neuron whose orientation is derived from the connectome
+itself; and (3) closed-loop experiments in a simulated twin of the robot that runs the robot's production
+daemons. Throughout, we separate what the connectome does from what our interfaces do, because that
+boundary is what any claim about ``a fly brain controlling a robot'' depends on (Table~\ref{tab:boundary}).
+
+\begin{table}[t]
+\centering\small
+\caption{What is the connectome's and what is ours. The brain model is not trained, tuned or edited.}
+\label{tab:boundary}
+\begin{tabular}{p{0.45\linewidth}p{0.47\linewidth}}
+\toprule
+From the connectome (unchanged) & Hand-written interfaces (ours) \\
+\midrule
+Every neuron, synapse and sign; the LIF dynamics of \cite{shiu2024} & ToF $\rightarrow$ LPLC2/LC4 Poisson rates (inverse time-to-contact) \\
+Which neurons respond to looming, which to rotation & Camera $\rightarrow$ optic flow $\rightarrow$ T4/T5 rates by preferred direction \\
+Whether, and on which side, the giant fibre fires & The shape of the startle (sound, gaze, crouch, step back) \\
+The sign and size of the DNp15/DNa02 left--right difference & Gains, smoothing, clamps; the body following the head \\
+Where each T4/T5 looks (FlyWire columns); front and up, from the wiring & Approach-speed gate; efference copies of the robot's own motion \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Methods}
+
+\subsection{Brain model and a stepped reimplementation}
+
+We use the FlyWire 783 connectome as distributed with \cite{shiu2024} (138{,}639 neurons, 15{,}091{,}983
+connected pairs, 54{,}492{,}922 synapses) and the model's equations and constants unchanged: membrane
+time constant \SI{20}{ms}, synaptic time constant \SI{5}{ms}, rest and reset \SI{-52}{mV}, threshold
+\SI{-45}{mV}, refractory period \SI{2.2}{ms}, synaptic delay \SI{1.8}{ms}, \SI{0.275}{mV} per synapse,
+time step \SI{0.1}{ms}, and Poisson stimulation as a voltage kick of $250 \times \SI{0.275}{mV}$.
+
+The reference implementation in Brian2 \cite{stimberg2019} rebuilds the network for every run, which is
+appropriate for one-second optogenetic trials but not for a sensorimotor loop that needs tens of
+milliseconds of brain time per sensor frame (a \SI{20}{ms} step cost \SIrange{0.2}{0.4}{s} of wall time;
+a long run, 2.6$\times$ real time). Our stepped simulator (\texttt{flysim.py}, numba) holds the state
+between calls and follows Brian2's schedule within each step: state update, threshold, synaptic
+propagation and Poisson input, reset.
+
+\paragraph{A semantic detail of the reference.} In the reference model $v$ and $g$ are declared
+\texttt{(unless refractory)}. Brian2 implements this as a \emph{conditional write}: any write to these
+variables, including synaptic input, is discarded while the neuron is refractory. Input arriving during
+refractoriness is therefore lost, not accumulated. An implementation that banks it is plausible-looking
+but wrong: every downstream neuron fired $\sim$20\% too fast in ours until this was matched. We found it by
+replaying the reference's own input spike times into our simulator and comparing every downstream spike.
+
+\paragraph{Exact sparsity.} Under strong visual drive $\sim$50{,}000 neurons sit just off rest, and
+stepping them made the brain four times slower than real time; parallelising the per-step pass across
+cores made it slower still (thread-region launch every \SI{0.1}{ms}). Between inputs the model is linear,
+so the highest a neuron's voltage can still reach without further input has a closed form:
+\begin{equation}
+v_{\max} - v_0 \le \max(u,0) + P_g \max(g,0),\qquad P_g = \max_t \frac{\tau}{\tau - T}\left(e^{-t/\tau}-e^{-t/T}\right) \approx 0.157,
+\end{equation}
+with $u = v - v_0$, $T$ the membrane and $\tau$ the synaptic time constant. A non-refractory neuron whose
+bound is below threshold cannot spike before its next input; it becomes \emph{dormant} and is not stepped.
+Its next synaptic arrival or Poisson event wakes it, and its state is advanced analytically over the gap
+(the per-step propagator raised to the gap, from a lookup table). Poisson input is drawn as geometric
+inter-event gaps per frame rather than a Bernoulli trial per neuron per step, which is the same process.
+The result remains spike-for-spike identical to Brian2 under replay (13{,}607 of 13{,}607 spikes) while
+cost follows synaptic events instead of neurons $\times$ steps.
+
+\subsection{Robot, simulator and interface}
+
+The microduck's production daemons (\texttt{robotd}, \texttt{tofd}, \texttt{mediad}) run unmodified
+against a MuJoCo \cite{todorov2012} model of its body, with only the servo bus, the ToF sensor and the
+camera replaced by the simulator (\texttt{scripts/duck-sim}). Our bridge reads the robot's own interfaces:
+ToF frames at \SI{15}{Hz} (\texttt{tof.stream}), camera frames at \SI{30}{Hz} (\texttt{media.frame}), and
+the robot's state at \SI{50}{Hz} (\texttt{robot.state}: head forward kinematics, IMU orientation,
+odometry, executed twist). It writes only intents the robot already accepts---\texttt{robot.move},
+\texttt{robot.head}, \texttt{robot.look}, \texttt{robot.pose}, \texttt{robot.sound}. The brain advances by
+exactly the time between ToF frames, with the latest camera-derived rates.
+
+A stimulus prop (a sphere that can be thrown at the robot) and a rotating drum of 48 alternating black and
+white panels (\SI{0.5}{m} radius, a \SI{15}{\degree} spatial period) are added to the simulator without
+modifying it: a generated copy of the scene, and a Python start-up hook that moves the two mocap bodies.
+
+\paragraph{The twin had to walk first.} The twin as shipped loaded an obsolete walking policy on a robot
+model without joint backlash, and did not walk: \SI{4}{cm} in \SI{8}{s} at \SI{0.15}{m/s} commanded.
+The current policy (velstand) was trained with backlash and stands still without it; with both corrected
+the twin walks (\SI{0.06}{m/s} for \SI{0.15}{m/s} asked) and turns (\SI{50}{\degree/s} for
+\SI{46}{\degree/s} asked on the spot). This fix has been submitted upstream. The residual shortfall in
+forward speed, a dead band below $\sim$\SI{0.55}{rad/s} of yaw on the spot, and an occasional failure to
+take a first slow step are properties of the twin that our controllers have to live with.
+
+\subsection{Startle: depth sensor to looming detectors}
+
+The giant fibre (DNp01, one per side) receives its two largest excitatory inputs from LPLC2 and LC4
+(10.6\% and 8.6\% of the left GF's annotated input synapses; 12.1\% and 8.4\% of the right's), consistent
+with their established roles in looming detection \cite{vonreyn2017,ache2019,klapoetke2017}. For each ToF
+zone we estimate inverse time-to-contact $\tau^{-1} = -\dot d/d$ from a line fit over four frames
+(\SI{0.27}{s}); a zone drives the LPLC2 and LC4 neurons assigned to it (left four columns to the left optic
+lobe, round-robin within a side, $\sim$3 LPLC2 and $\sim$1.5 LC4 per zone) at a saturating rate up to
+\SI{150}{Hz}. Two filters are ours and labelled as such: zones whose return is the floor are excluded,
+using the robot's own floor test with a \SI{3}{\degree} pose margin; and drive is gated on approach speed
+above \SI{0.4}{m/s}, a duck choice that loosely parallels the giant fibre's preference for fast looming
+\cite{vonreyn2017}. A giant-fibre spike triggers a startle assembled from existing intents, with a \SI{2}{s}
+refractory period.
+
+\subsection{Optomotor reflex: camera to motion detectors}
+
+\paragraph{Retinotopy from the connectome.} Each eye has $\sim$750 T4 and $\sim$750 T5 neurons of each of
+four preferred directions (a front-to-back, b back-to-front, c up, d down \cite{maisak2013}). FlyWire's
+column map \cite{matsliah2024} assigns 11{,}822 of them to 796 hexagonal columns (395 left, 401 right)
+with axial coordinates $(p,q)$. Nearest neighbours differ by $(p{+}1, q{+}1)$ or by one coordinate, which
+gives physical coordinates $X = \sqrt3\,(q-p)/2$, $Y = (p+q)/2$ and a roughly round eye.
+
+The map does not say which direction is anterior or dorsal. We derive both from the wiring
+(Fig.~\ref{fig:eyes}). LPLC2's four dendritic arms each take the T4/T5 subtype whose preferred direction
+points away from the cell's centre \cite{klapoetke2017}; averaging, over all LPLC2 of an eye, the position
+of each subtype's inputs relative to the cell's input centroid places T4a/T5a at $\Delta X = -2.7$ and
+$-2.9$ columns (left and right eye), T4b/T5b at $+2.1$ and $+1.9$, T4c/T5c at $\Delta Y = +1.7$ and $+1.9$,
+and T4d/T5d at $-2.1$ and $-2.2$. Hence $+X$ is anterior and $+Y$ dorsal in both eyes. Independently, the
+dorsal and ventral HS cells (HSN, HSS) take their T4/T5 input at higher and lower $Y$ respectively,
+confirming the vertical axis, and the equatorial HSE sets elevation zero. With an interommatidial angle of
+\SI{4.8}{\degree} and the frontmost column placed \SI{10}{\degree} across the midline, the eyes span
+\SIrange{-10}{131}{\degree} in azimuth and \SIrange{-84}{66}{\degree} in elevation.
+
+\paragraph{Flow to rates.} The camera sees \SI{45}{\degree}$\times$\SI{73}{\degree} straight ahead.
+Only T4/T5 neurons whose direction falls in that view---1{,}424 of 11{,}822---receive input: dense
+Farneb\"ack optic flow \cite{farneback2003} at quarter resolution, averaged over one column's extent at the
+neuron's position, projected on its preferred direction, rectified and mapped to a saturating Poisson rate
+($\le$\SI{60}{Hz}). Image left is the robot's left (verified with a placed object).
+
+\paragraph{Efference copies.} Image motion the robot causes deliberately is predicted and subtracted
+before it reaches the fly: the head's idle look-around, and walking. Walking turned out to be dominated not
+by translation (floor flow $\sim$\SI{10}{\degree/s} at \SI{0.08}{m/s}) but by the gait's pitch and roll
+(\SIrange{30}{80}{\degree/s}). We predict both per pixel from the robot's state---floor translation from
+odometry on pixels whose ray meets the floor, rotation from the camera's world orientation between states
+with the vertical component removed (yaw slip is the reflex's own signal)---and subtract the prediction
+weighted by local image texture, since a flow estimator, like a T4 neuron, reports no motion on an edgeless
+surface. The prediction matches a controlled head nod with $r = 0.98$; during walking it correlates with
+the measured flow ($r = 0.90$) only when each frame is paired with the state at its own capture time.
+
+\paragraph{Motor readout.} DNp15 (DNHS1 \cite{namiki2018}) left--right difference, smoothed
+(\SI{0.15}{s}), integrates into head yaw. For the body we tested DNa02 \cite{rayshubskiy2020} directly
+(\texttt{--steer dna02}) and a head-led coupling of ours (\texttt{--steer body}): the walking body
+(\SI{0.1}{m/s}) turns at $k \cdot$ head yaw while the head counter-rotates by the trunk's measured yaw
+rate, so gaze is held.
+
+\section{Results}
+
+\subsection{The stepped model reproduces the reference}
+
+With the sugar-sensing gustatory neurons driven at \SI{150}{Hz} for 30 one-second trials, firing rates
+of the 450 active neurons correlate with the Brian2 reference at $r = 0.9998$; MN9 fires at
+\SI{83.2}{Hz} against \SI{83.9}{Hz} (Fig.~\ref{fig:validation}). Under replay of the reference's own input
+spikes, all 13{,}607 downstream spikes are identical in neuron and time step. On one core of an Apple M5
+Max, one second of brain takes \SI{0.04}{s} under that stimulus, \SI{0.38}{s} under drum-like drive of
+3{,}000 T4/T5 at \SI{30}{Hz}, and \SI{0.78}{s} with all 12{,}246 T4/T5 at \SI{30}{Hz}; in the closed loop,
+a \SI{67}{ms} frame costs \SIrange{4}{7}{ms}.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.49\linewidth]{figures/frame_startle.jpg}\hfill
+\includegraphics[width=0.49\linewidth]{figures/frame_arena.jpg}
+\caption{Frames from the recorded demonstration (\texttt{media/duckophila.mp4}). Left halves: the robot in
+MuJoCo, re-rendered from its recorded pose. Right halves: the brain, every neuron at its FlyWire position
+seen from the front, lit in its class's colour when it spikes. \textbf{Left:} a ball reaches the robot's
+face; both giant fibres are ringed in red as they fire. \textbf{Right:} in the turning drum, T4/T5 neurons
+in both optic lobes (blue) and DNp15 respond.}
+\label{fig:frames}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.36\linewidth]{figures/validation.pdf}
+\caption{The stepped simulator against the Brian2 reference: mean firing rates over 30 trials with the
+right sugar-sensing neurons at \SI{150}{Hz} (FlyWire 630, as in \cite{shiu2024}).}
+\label{fig:validation}
+\end{figure}
+
+\subsection{Startle}
+
+Driving LPLC2 and LC4 of one side directly, the giant fibres are silent at rest and fire in a graded way
+with drive rate and with the fraction of the population driven, more strongly ipsilaterally; at higher
+drive the contralateral DNa01/DNa02 and, weakly, the moonwalker descending neurons (MDN \cite{bidaye2014})
+are recruited. On synthetic ToF scenes ray-cast with the sensor's beam geometry and noise, all 21 trials
+(7 scenes $\times$ 3 seeds) were classified correctly: a hand at \SI{1}{m/s} or a ball at \SI{1.5}{m/s}
+fired the giant fibre \SIrange{0.13}{0.27}{s} after onset (the hand still $\sim$\SI{0.6}{m} away), while
+sensor noise, walking towards a wall at \SI{0.15} and \SI{0.3}{m/s}, a ball passing at \SI{40}{cm} and a
+hand at \SI{0.2}{m/s} produced no giant-fibre spike; \SI{0.4}{m/s} is the edge. In the simulated robot, in
+the recorded demonstration, each of three balls at \SI{1.5}{m/s} from centre, left and right produced a
+startle within a second, the left ball through the left giant fibre and the right ball through the right;
+a hand at \SI{0.2}{m/s} produced none.
+
+Two failure modes were found and fixed in the interface, not the brain. A standing robot's idle head
+motion makes $\sim$45 of 64 depth zones see an approaching and receding floor; without a floor filter 30\%
+of quiet frames drove the looming detectors. Near the horizon, a \SIrange{2}{3}{\degree} discrepancy
+between the kinematic model and the rendered sensor pose decides whether a grazing return is floor; without
+a pose margin, the robot startled 5 times in \SI{25}{s} in an empty room, with it none.
+
+\subsection{Optomotor reflex}
+
+\paragraph{In the connectome.} Driving T4a/T5a of one eye and T4b/T5b of the other---the pattern a yaw
+rotation of the world produces---activates the ipsilateral HS cells and contralateral H2 as in the fly,
+and flips the left--right activity of DNa02 with the direction of rotation, in the sense of a
+syndirectional (following) turn under the interpretation of \cite{rayshubskiy2020}: world turning right,
+DNa02 right \SI{28}{Hz} versus left \SI{5}{Hz}; world turning left, left \SI{69}{Hz} versus right
+\SI{5}{Hz}. DNa01 does not flip cleanly. The strongest-flipping descending neuron is DNp15 (DNHS1).
+
+\paragraph{Retinotopy is necessary.} With T4/T5 neurons assigned to image regions at random, wide-field
+drum motion reached LPLC2 scrambled and fired the giant fibre 7--11 times per run. With column-based
+placement, rotation produced no giant-fibre activity in synthetic tests or in the closed loop (one startle
+in \SI{29}{s} of drum, from the ToF at start-up).
+
+\paragraph{The camera's field of view limits the readout.} With the column map, a whole-eye yaw rotation
+flips both DNa02 and DNp15 (Fig.~\ref{fig:flips}). Restricted to the neurons whose direction falls in the
+camera's view, DNp15 still flips strongly (\SI{51}{Hz} left vs.\ \SI{0}{Hz} right; \SI{0} vs.\
+\SI{86}{Hz}), but DNa02 does not change sign: right exceeds left in both directions, by \SI{2.7}{Hz} and
+\SI{11}{Hz}. Rotation over the frontal \SI{30}{\degree} of the eye at all elevations is sufficient for a
+DNa02 flip; the camera's limited elevation range is not. Likewise, no expansion stimulus within the camera
+view, up to \SI{400}{\degree/s}, drove LPLC2 appreciably; looming therefore remains the ToF's task.
+
+\paragraph{Closed loop.} With DNp15 driving head yaw, the robot's head follows the drum in both
+directions as a triangle wave at \SIrange{8}{12}{\degree/s} for a \SI{30}{\degree/s} drum (closed-loop
+gain 0.3--0.4: partial compensation, as optomotor responses typically show) and holds still when the drum is still; higher gains
+oscillate, given $\sim$\SI{0.3}{s} of loop latency. With the head-led body coupling, the walking robot
+turns with the drum at a mean of $+5$ and \SI{-9}{\degree/s} (peaks $\pm$\SIrange{15}{20}{\degree/s})
+against an intrinsic gait drift of \SI{-4.6}{\degree/s}. Without the walking efference copy, three
+startles occurred in \SI{200}{s} of walking in the turning drum; with it, none, with unchanged steering.
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=\linewidth]{figures/eyes.pdf}
+\caption{Retinotopy from the connectome. \textbf{Left, centre:} viewing directions of the 395 and 401
+columns of each eye, from FlyWire's column map with orientation derived from the wiring; red, the camera's
+field of view. \textbf{Right:} mean offset of each T4/T5 subtype's input to LPLC2 from the LPLC2 neuron's
+input centroid (solid: left eye; faint: right). Front-to-back inputs sit posterior, up inputs dorsal---the
+outward-motion arrangement of a looming detector---which fixes the eye's axes.}
+\label{fig:eyes}
+\end{figure}
+
+\begin{figure}[t]
+\centering
+\includegraphics[width=0.9\linewidth]{figures/flips.pdf}
+\caption{Steering descending neurons under yaw rotation (\SI{40}{\degree/s}), with every T4/T5 driven
+(whole eye) or only those looking into the camera's view. DNp15 flips in both cases; DNa02 only with the
+whole eye.}
+\label{fig:flips}
+\end{figure}
+
+\section{Discussion}
+
+The connectome, unmodified and untrained, produced two recognisable fly behaviours when its sensory
+neurons were driven by a robot's sensors: a lateralised escape decision to fast approaching objects, and a
+following optomotor response. Neither was wired in. What was wired in is listed in
+Table~\ref{tab:boundary}, and most of the effort went there: the biological plausibility of the input
+decided whether the connectome's computation could be expressed at all. Scrambled retinotopy did not just
+add noise, it produced false escape decisions, because LPLC2's selectivity is a property of where its
+inputs sit. The robot's own movement dominated its visual input, as it does for animals, and needed an
+efference copy before the fly's motion pathway could be used while walking \cite{kim2015}.
+
+The clearest limitation is sensory. A single forward camera covers a small part of a fly's visual field,
+and the canonical steering neuron DNa02 \cite{rayshubskiy2020} did not respond to rotation within it. The
+head-coupled neuron DNp15 did, so we steer the head with the fly's output and the body with a coupling rule
+of ours. Whether a wider camera, or several, recover DNa02-based steering is a direct experimental question
+the setup can answer.
+
+Other limitations are those of the model and the platform. The LIF model of \cite{shiu2024} uses one
+synaptic weight for all connections, has no gap junctions (the giant fibre's electrical synapses are
+absent), no plasticity and no neuromodulation, and treats neurotransmitter predictions as signs. T4 and T5
+are driven alike, without an ON/OFF split. The robot is simulated; its gait reaches 40\% of commanded speed
+and the camera/state timing measured in simulation will differ on hardware. Our gains and gates are
+engineering choices, stated as such. We make no claim that the robot behaves like a fly beyond the two
+reflexes measured.
+
+Natural next steps are pursuit through the courtship circuit (LC10 $\rightarrow$ P1) as a ``follow me''
+behaviour, valence learning in the mushroom body with plasticity at Kenyon-cell output synapses, and the
+physical robot, with the brain on a laptop and the robot's camera streamed over WebRTC. Related efforts embody
+connectome-constrained or neuromechanical fly models in simulated bodies \cite{lobato2022,vaxenburg2025};
+here the body is a different animal's, and the interesting part is the translation between them.
+
+\section*{Reproducibility}
+
+Everything above is a script in \url{https://github.com/first-it-consulting/duckophila}:
+\texttt{experiments/} (each figure and number), \texttt{paper/figures.py} (every figure, from data),
+\texttt{demo.sh --video} (the recorded demonstration). The FlyWire data are fetched under their own terms.
+Hardware: Apple M5 Max, macOS; brain on one core.
+
+\section*{Acknowledgements}
+
+The connectome and annotations are the work of the FlyWire consortium; the brain model is that of Shiu et
+al.; the robot, its software and its simulator are Pollen Robotics'. The FlyWire annotations used are
+version $\geq$3.2, for which the annotation authors also ask to cite Berg et al.\ (2026) and Tastekin et
+al.\ (2026). The implementation, experiments and this report were developed with substantial assistance
+from an AI coding assistant (Anthropic's Claude), directed and reviewed by the author.
+
+\begin{thebibliography}{99}\small
+\bibitem{dorkenwald2024} S.~Dorkenwald et al. Neuronal wiring diagram of an adult brain. \emph{Nature} 634, 124--138 (2024).
+\bibitem{schlegel2024} P.~Schlegel et al. Whole-brain annotation and multi-connectome cell typing of \emph{Drosophila}. \emph{Nature} 634, 139--152 (2024).
+\bibitem{matsliah2024} A.~Matsliah et al. Neuronal parts list and wiring diagram for a visual system. \emph{Nature} 634, 166--180 (2024).
+\bibitem{shiu2024} P.~K.~Shiu et al. A \emph{Drosophila} computational brain model reveals sensorimotor processing. \emph{Nature} 634, 210--219 (2024).
+\bibitem{stimberg2019} M.~Stimberg, R.~Brette, D.~F.~M.~Goodman. Brian 2, an intuitive and efficient neural simulator. \emph{eLife} 8, e47314 (2019).
+\bibitem{todorov2012} E.~Todorov, T.~Erez, Y.~Tassa. MuJoCo: a physics engine for model-based control. \emph{IROS} (2012).
+\bibitem{maisak2013} M.~S.~Maisak et al. A directional tuning map of \emph{Drosophila} elementary motion detectors. \emph{Nature} 500, 212--216 (2013).
+\bibitem{klapoetke2017} N.~C.~Klapoetke et al. Ultra-selective looming detection from radial motion opponency. \emph{Nature} 551, 237--241 (2017).
+\bibitem{vonreyn2017} C.~R.~von Reyn et al. Feature integration drives probabilistic behavior in the \emph{Drosophila} escape response. \emph{Neuron} 94, 1190--1204 (2017).
+\bibitem{ache2019} J.~M.~Ache et al. Neural basis for looming size and velocity encoding in the \emph{Drosophila} giant fiber escape pathway. \emph{Curr.\ Biol.} 29, 1073--1081 (2019).
+\bibitem{namiki2018} S.~Namiki, M.~H.~Dickinson, A.~M.~Wong, W.~Korff, G.~M.~Card. The functional organization of descending sensory-motor pathways in \emph{Drosophila}. \emph{eLife} 7, e34272 (2018).
+\bibitem{rayshubskiy2020} A.~Rayshubskiy et al. Neural circuit mechanisms for steering control in walking \emph{Drosophila}. \emph{bioRxiv} (2020).
+\bibitem{bidaye2014} S.~S.~Bidaye, C.~Machacek, Y.~Wu, B.~J.~Dickson. Neuronal control of \emph{Drosophila} walking direction. \emph{Science} 344, 97--101 (2014).
+\bibitem{kim2015} A.~J.~Kim, J.~K.~Fitzgerald, G.~Maimon. Cellular evidence for efference copy in \emph{Drosophila} visuomotor processing. \emph{Nat.\ Neurosci.} 18, 1247--1255 (2015).
+\bibitem{farneback2003} G.~Farneb\"ack. Two-frame motion estimation based on polynomial expansion. \emph{Scandinavian Conference on Image Analysis} (2003).
+\bibitem{lobato2022} V.~Lobato-Rios et al. NeuroMechFly, a neuromechanical model of adult \emph{Drosophila melanogaster}. \emph{Nat.\ Methods} 19, 620--627 (2022).
+\bibitem{vaxenburg2025} R.~Vaxenburg et al. Whole-body physics simulation of fruit fly locomotion. \emph{Nature} (2025).
+\end{thebibliography}
+
+\end{document}

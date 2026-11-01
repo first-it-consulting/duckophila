@@ -1,0 +1,33 @@
+{
+ "validation_r": 0.9997541368853344,
+ "validation_n": 450,
+ "mn9_brian2": 83.9,
+ "mn9_flysim": 83.23333333333333,
+ "eye_az": [
+  -10.0,
+  131.33534589762039
+ ],
+ "eye_el": [
+  -83.65575825093998,
+  66.12170071783545
+ ],
+ "columns_left": 395,
+ "columns_right": 401,
+ "t45_with_columns": 11822,
+ "whole eye|world turns left|DNa02|left": 47.33333333333333,
+ "whole eye|world turns left|DNa02|right": 5.333333333333333,
+ "whole eye|world turns left|DNp15|left": 98.33333333333334,
+ "whole eye|world turns left|DNp15|right": 0.0,
+ "whole eye|world turns right|DNa02|left": 2.6666666666666665,
+ "whole eye|world turns right|DNa02|right": 22.0,
+ "whole eye|world turns right|DNp15|left": 0.0,
+ "whole eye|world turns right|DNp15|right": 126.66666666666669,
+ "camera only|world turns left|DNa02|left": 16.0,
+ "camera only|world turns left|DNa02|right": 18.666666666666664,
+ "camera only|world turns left|DNp15|left": 50.66666666666666,
+ "camera only|world turns left|DNp15|right": 0.0,
+ "camera only|world turns right|DNa02|left": 5.333333333333333,
+ "camera only|world turns right|DNa02|right": 16.333333333333336,
+ "camera only|world turns right|DNp15|left": 0.0,
+ "camera only|world turns right|DNp15|right": 85.66666666666667
+}

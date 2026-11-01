@@ -19,6 +19,9 @@ dependencies = [
 video = ["mujoco==3.10.0"]
 # the reference model, for experiments/sugar_mn9.py, replay.py and compare.py
 reference = ["brian2>=2.10", "joblib>=1.6", "scipy>=1.18"]
+paper = [
+    "matplotlib>=3.11.2",
+]
 
 [tool.uv]
 default-groups = ["reference"]

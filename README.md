@@ -166,6 +166,12 @@ the view. `MICRODUCK=` and `DUCK_SIM_RL=` point `sim/duck-sim` elsewhere.
   can still climb lets the ones that cannot fire sleep until their next input — exactly.
 - `mediad` serves one camera frame per connection, and sometimes hands out the same render twice.
 
+## Paper
+
+[`paper/duckophila.pdf`](paper/duckophila.pdf) — the full account: methods, every number above and
+where it came from, the failure modes, and the limits. Its figures are built from data by
+`paper/figures.py`; the PDF by `tectonic -X compile paper/duckophila.tex`.
+
 ## Credit
 
 The fly is not ours. Please cite:
