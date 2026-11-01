@@ -1,13 +1,15 @@
 """Render a recorded run as a video: the duck in MuJoCo beside the fly brain that drives it.
 
-    .venv/bin/python -I video/make_video.py demo/        # demo/{startle,arena}_{sim,trace}.npz -> demo/duckophila.mp4
+    .venv/bin/python -I video/make_video.py demo/        # demo/{startle,arena,follow,learn}_{sim,trace}.npz -> demo/duckophila.mp4
 
 The left half re-renders the simulator from `record_sim.py`'s samples — every joint, the trunk,
 the ball and the drum — from a camera that follows the duck. The right half is the brain from
 `bridge.py --trace`: every one of FlyWire's neurons at its own position, seen from the front, lit in
 its class's colour when it spikes and fading over a few frames; below it the duck's camera, its
-depth frame, and the descending neurons that matter. A giant-fiber spike — a startle — rings the
-giant fibers in red. Nothing is drawn that the recording does not contain.
+depth frame, and the neurons that matter for the act. A giant-fiber spike — a startle — rings the
+giant fibers in red; in the learning act, petting is marked and each target's learned value (from the
+mushroom body's output neurons, `learning.py`) is shown as the brain had it. The learning act plays
+faster than real time, and says so. Nothing is drawn that the recording does not contain.
 """
 from __future__ import annotations
 
@@ -57,6 +59,7 @@ class Sim:
         self.free = self.m.jnt_qposadr[free]
         mid = lambda n: self.m.body_mocapid[mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_BODY, n)]
         self.prop, self.drum = mid('duckophila_prop'), mid('duckophila_drum')
+        self.target, self.bar = mid('duckophila_target'), mid('duckophila_bar')
         # the drum, see-through in the video only: from outside it is a wall, and the duck is inside
         drum_body = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_BODY, 'duckophila_drum')
         self.m.geom_rgba[self.m.geom_bodyid == drum_body, 3] = 0.45
@@ -74,6 +77,8 @@ class Sim:
         d.qpos[self.free + 3:self.free + 7] = s['quat'][i]
         d.mocap_pos[self.prop] = s['prop'][i]
         d.mocap_pos[self.drum], d.mocap_quat[self.drum] = s['drum_pos'][i], s['drum_quat'][i]
+        if 'target' in s:
+            d.mocap_pos[self.target], d.mocap_pos[self.bar] = s['target'][i], s['bar'][i]
         mujoco.mj_forward(self.m, d)
         target = np.array(s['trunk'][i]) + [0, 0, 0.05]
         self.look = target if self.look is None else 0.92 * self.look + 0.08 * target   # a steady follow
@@ -113,7 +118,16 @@ class Brain:
         canvas[:] = np.clip(out, 0, 255).astype(np.uint8)
 
 
-def trace_panel(canvas, tr, j, x0, y0):
+ROWS = {
+    'reflex': [('DNp01_L', 'giant fiber L', RED), ('DNp01_R', 'giant fiber R', (90, 90, 255)),
+               ('DNp15_L', 'DNp15 L (head)', (80, 220, 255)), ('DNp15_R', 'DNp15 R (head)', (255, 220, 80))],
+    'follow': [('LC10a_L', 'LC10a L (target)', (120, 200, 90)), ('LC10a_R', 'LC10a R (target)', (200, 230, 120)),
+               ('DNa02_L', 'DNa02 L (turn left)', (80, 220, 255)), ('DNa02_R', 'DNa02 R (turn right)', (255, 220, 80))],
+}
+SCALE = {'DNp15': 150.0, 'DNa02': 60.0, 'LC10a': 30.0}
+
+
+def trace_panel(canvas, tr, j, x0, y0, rows='reflex'):
     """The duck's camera, its depth frame, and the key descending neurons over the last 6 s."""
     cam = tr['camera'][j]
     if cam.size > 1:
@@ -136,9 +150,7 @@ def trace_panel(canvas, tr, j, x0, y0):
     lo = np.searchsorted(tr['t'], t_now - 6.0)
     ts = tr['t'][lo:j + 1]
     cv2.rectangle(canvas, (tx, y0), (tx + tw, y0 + th), (60, 60, 60), 1)
-    rows = [('DNp01_L', 'giant fiber L', RED), ('DNp01_R', 'giant fiber R', (90, 90, 255)),
-            ('DNp15_L', 'DNp15 L (head)', (80, 220, 255)), ('DNp15_R', 'DNp15 R (head)', (255, 220, 80))]
-    for k, (key, label, col) in enumerate(rows):
+    for k, (key, label, col) in enumerate(ROWS[rows]):
         if key not in names or len(ts) < 2:
             continue
         if key.startswith('DNp01'):   # it fires a spike or two: ticks, not a rate
@@ -149,13 +161,32 @@ def trace_panel(canvas, tr, j, x0, y0):
             text(canvas, label, (tx + 6 + k * (tw // 4), y0 + th + 22), 0.45, col, box=False)
             continue
         ysig = tr['key'][lo:j + 1, names.index(key)]
-        pts = np.stack([tx + (ts - (t_now - 6.0)) / 6.0 * tw, y0 + th - np.clip(ysig / 150.0, 0, 1) * (th - 4)], 1).astype(np.int32)
+        ysig = np.convolve(ysig, np.ones(3) / 3, mode='same')     # a brain step is ~66 ms: smooth a little
+        pts = np.stack([tx + (ts - (t_now - 6.0)) / 6.0 * tw, y0 + th - np.clip(ysig / SCALE.get(key[:-2], 150.0), 0, 1) * (th - 4)], 1).astype(np.int32)
         cv2.polylines(canvas, [pts], False, col, 2, cv2.LINE_AA)
         text(canvas, label, (tx + 6 + k * (tw // 4), y0 + th + 22), 0.45, col, box=False)
     text(canvas, 'descending neurons, last 6 s', (tx, y0 - 8), 0.5, DIM, box=False)
 
 
-def render(sim_npz: Path, trace_npz: Path, caption: str, out: Path, scene: Path, overhead: bool = False):
+def learn_panel(canvas, tr, j, T, phases):
+    """The learning act: what is happening, whether the duck is being petted, what it has learned."""
+    x0, y0 = W // 2 + 40, 770
+    phase = [p for t, p in phases if t <= T]
+    if phase:
+        text(canvas, phase[-1], (x0, y0), 0.8, INK, 1)
+    if 'petting' in tr and tr['petting'][j]:
+        text(canvas, 'PETTED  ->  reward dopamine neurons (PAM)', (x0, y0 - 40), 0.85, (120, 200, 255), 2)
+    for k, (key, label) in enumerate((('value_ball', 'ball'), ('value_bar', 'bar'))):
+        if key not in tr:
+            continue
+        v = tr[key][j]
+        s = f'{label}: naive' if np.isnan(v) else f'{label}: {v:+.1f} Hz' + ('  -> follows it' if v > 1.0 else '')
+        text(canvas, s, (W - 470, y0 - 40 + 40 * k), 0.75, (120, 230, 120) if not np.isnan(v) and v > 1.0 else DIM)
+    text(canvas, 'learned value (mushroom-body output)', (W - 470, y0 - 82), 0.5, DIM, box=False)
+
+
+def render(sim_npz: Path, trace_npz: Path, caption: str, out: Path, scene: Path, overhead: bool = False,
+           rows: str = 'reflex', speed: float = 1.0, phases: list | None = None):
     s, tr = np.load(sim_npz), np.load(trace_npz, allow_pickle=False)
     sim = Sim(scene, overhead)
     from flysim import DATA
@@ -165,12 +196,12 @@ def render(sim_npz: Path, trace_npz: Path, caption: str, out: Path, scene: Path,
     brain.idx = {n: [int(np.flatnonzero(ids == f)[0]) for f in N.ids(n)] for n in ('DNp01', 'DNp15')}
     offs = np.concatenate([[0], np.cumsum(tr['spk_n'])])
     t0, t1 = max(s['t'][0], tr['t'][0]), min(s['t'][-1], tr['t'][-1])
-    n = int((t1 - t0) * FPS)
+    n = int((t1 - t0) * FPS / speed)
     tmp = out.with_suffix('.raw.mp4')
     vw = cv2.VideoWriter(str(tmp), cv2.VideoWriter_fourcc(*'mp4v'), FPS, (W, H))
     flash_until, last_j = -1.0, -1
     for f in range(n):
-        T = t0 + f / FPS
+        T = t0 + f * speed / FPS
         i = min(int(np.searchsorted(s['t'], T)), len(s['t']) - 1)
         j = max(0, int(np.searchsorted(tr['t'], T)) - 1)
         canvas = np.zeros((H, W, 3), np.uint8)
@@ -187,11 +218,13 @@ def render(sim_npz: Path, trace_npz: Path, caption: str, out: Path, scene: Path,
             for g in brain.idx['DNp01']:
                 cv2.circle(canvas, tuple(brain.px[g]), 26, RED, 3, cv2.LINE_AA)
             text(canvas, 'giant fiber fires  ->  startle', (W // 2 + 40, 760), 0.9, RED, 2)
-        trace_panel(canvas, tr, j, W // 2 + 40, 840)
+        if phases is not None:
+            learn_panel(canvas, tr, j, T, phases)
+        trace_panel(canvas, tr, j, W // 2 + 40, 840, rows)
         # titles
         text(canvas, 'microduck in MuJoCo  (the real robot daemons)', (30, 50), 0.9)
         text(canvas, "a fruit fly's brain: 138,639 neurons (FlyWire)", (W // 2 + 30, 50), 0.9)
-        text(canvas, f'{T - t0:4.1f} s', (W // 2 - 110, 50), 0.7, DIM)
+        text(canvas, f'{T - t0:4.1f} s' + (f'  ({speed:g}x)' if speed != 1 else ''), (W // 2 - (170 if speed != 1 else 110), 50), 0.7, DIM)
         head, _, tail = caption.partition(':')
         text(canvas, head + (':' if tail else ''), (30, H - 76), 0.85)
         if tail:
@@ -229,13 +262,18 @@ def main():
     title_card(d / 'v0.mp4', [('Duckophila', 2.0), ("a fruit fly's brain, driving a microduck", 1.0),
                               ('FlyWire connectome  -  Shiu et al. brain model  -  microduck by Pollen Robotics / Hugging Face', 0.6)])
     parts.append(d / 'v0.mp4')
-    acts = [('startle', "Act 1 - a ball thrown at the face: the fly's looming detectors fire its escape neuron", False),
-            ('arena', 'Act 2 - a striped drum turns: the head follows it (DNp15), the walking body follows the head', True)]
-    for k, (name, cap, overhead) in enumerate(acts, 1):
+    acts = [('startle', "Act 1 - a ball thrown at the face: the fly's looming detectors fire its escape neuron", False, 'reflex', 1.0),
+            ('arena', 'Act 2 - a striped drum turns: the head follows it (DNp15), the walking body follows the head', True, 'reflex', 1.0),
+            ('follow', "Act 3 - a small target on the floor: the fly's object detectors (LC10a) steer it through DNa02", True, 'follow', 1.0),
+            ('learn', 'Act 4 - petted while it sees the ball, it follows the ball, not the bar: learning, mostly ours (see paper)', True, 'follow', 3.0)]
+    import json
+    for k, (name, cap, overhead, rows, speed) in enumerate(acts, 1):
         if (d / f'{name}_sim.npz').exists() and (d / f'{name}_trace.npz').exists():
             out = d / f'v{k}.mp4'
+            ph = d / f'{name}_phases.json'
+            phases = json.loads(ph.read_text()) if ph.exists() else None
             print(f'rendering {name}', flush=True)
-            render(d / f'{name}_sim.npz', d / f'{name}_trace.npz', cap, out, scene, overhead)
+            render(d / f'{name}_sim.npz', d / f'{name}_trace.npz', cap, out, scene, overhead, rows, speed, phases)
             parts.append(out)
     lst = d / 'parts.txt'
     lst.write_text(''.join(f"file '{p.name}'\n" for p in parts))

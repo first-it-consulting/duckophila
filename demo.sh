@@ -9,6 +9,9 @@
 # then a hand at petting speed. The fly's giant fiber should fire for the first three, not the last.
 # Act 2, the arena: the duck walks inside a striped drum that turns one way, then the other, every
 # 8 s; its head turns with the drum (DNp15), and the body follows the head.
+# Act 3, follow me: a glowing ball on the floor leads the duck 45 degrees each way (LC10a -> DNa02).
+# Act 4, learning: naive, the duck only looks at the ball and the bar; petted while it sees the
+# ball, it follows the ball and not the bar (video/acts.py; recorded with --trace only, no viewer).
 set -eu
 HERE="$(cd "$(dirname "$0")" && pwd)"
 PY="$HERE/.venv/bin/python"
@@ -67,6 +70,12 @@ kill $DRUM 2>/dev/null || true; wait $DRUM 2>/dev/null || true
 record_stop
 kill $BRIDGE 2>/dev/null || true; wait $BRIDGE 2>/dev/null || true
 "$PY" -I drum.py --off
+say "act 3: follow me"
+"$PY" -I video/acts.py follow demo >/dev/null
+say "act 4: learning (about 2 minutes)"
+"$PY" -I video/acts.py learn demo >/dev/null
+grep -o 'ball [^,]*Hz, bar [^,]*Hz' demo/learn.log | tail -1 | sed 's/^/   learned: /' || true
+
 if [ -n "$VIDEO" ]; then
     say "rendering the video"
     "$PY" -I video/make_video.py demo

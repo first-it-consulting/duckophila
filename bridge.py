@@ -352,12 +352,14 @@ class Trace:
         self.path, self.rows = path, []
         self.key = {f'{c}_{s[0].upper()}': [brain.index[f] for f in N.ids(c, s)] for c in self.KEY for s in ('left', 'right')}
 
-    def add(self, counts, ms, frame, camera, note, head, steer):
+    def add(self, counts, ms, frame, camera, note, head, steer, learn=None):
+        """`learn`, with --learn: (petting now, the ball's learned value, the bar's) — None while naive."""
         thumb = camera.grey[::4, ::4].copy() if camera is not None and camera.grey is not None else None
         d = np.where(np.isin(frame['status'], (5, 9)), np.asarray(frame['distance_mm'], np.int16), 0)
         self.rows.append((time.time(), np.flatnonzero(counts).astype(np.int32), counts[np.flatnonzero(counts)].astype(np.int16),
                           {k: counts[v].sum() * 1000.0 / ms / len(v) for k, v in self.key.items()},
-                          d, thumb, note or '', None if head is None else float(head[2]), steer))
+                          d, thumb, note or '', None if head is None else float(head[2]), steer,
+                          learn or (False, None, None)))
 
     def save(self):
         r = self.rows
@@ -372,7 +374,10 @@ class Trace:
             key_names=np.array(list(self.key)), key=np.array([[x[3][k] for k in self.key] for x in r]),
             depth=np.array([x[4] for x in r]), camera=np.array([t if t is not None else np.zeros(shape, np.uint8) for t in thumbs]),
             note=np.array([x[6] for x in r]), head_yaw=np.array([np.nan if x[7] is None else x[7] for x in r]),
-            steer=np.array([np.nan if x[8] is None else x[8] for x in r]))
+            steer=np.array([np.nan if x[8] is None else x[8] for x in r]),
+            petting=np.array([bool(x[9][0]) for x in r]),
+            value_ball=np.array([np.nan if x[9][1] is None else x[9][1] for x in r]),
+            value_bar=np.array([np.nan if x[9][2] is None else x[9][2] for x in r]))
         print(f'trace: {len(r)} steps -> {self.path}', flush=True)
 
 
@@ -631,7 +636,8 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
         if view:
             view.frame(t, f['distance_mm'], f['status'], enc.inv_tau, counts, ms, note, floor, camera, vyaw)
         if trace:
-            trace.add(counts, ms, f, camera, note, head, vyaw)
+            trace.add(counts, ms, f, camera, note, head, vyaw,
+                      None if learner is None else (learner.petting(now), learner.learned('ball'), learner.learned('bar')))
         if frames % (15 if os.environ.get("DUCKOPHILA_VERBOSE") else 150) == 0:
             line = (f'{t:8.2f}s  {frames} frames, brain {busy / frames * 1000:.1f} ms per frame, '
                     f'{brain.active} neurons active, '
