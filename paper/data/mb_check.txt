@@ -1,0 +1,13 @@
+1. visual share of Kenyon-cell input: {'KCab-p': '3.3%', 'KCg-d': '30.3%', 'KCg-s1': '48.9%', 'KCg-s2': '2.2%', 'KCg-s3': '3.3%'}
+2. camera-shaped input -> Kenyon cells / their visual inputs:
+   drum on camera T4/T5         KCs 0/5177, visual PNs 0/31
+   follow target on LC10a       KCs 0/5177, visual PNs 0/31
+   10-deg card, all columnar    KCs 0/5177, visual PNs 0/31
+   all columnar, both eyes      KCs 0/5177, visual PNs 0/31
+   the visual PNs driven directly at 100 Hz: KCg-d 147/295
+3/4. intact      20 Hz: KCs firing {'ORN_DM1': 3365, 'ORN_DA1': 3365, 'ORN_VA1d': 3364, 'ORN_DL3': 0, 'taste': 0}; overlap of the non-empty sets >= 1.00; whole brain up to 466176 spikes/s
+3/4. intact     100 Hz: KCs firing {'ORN_DM1': 3385, 'ORN_DA1': 3380, 'ORN_VA1d': 3373, 'ORN_DL3': 3362, 'taste': 3364}; overlap of the non-empty sets >= 0.99; whole brain up to 482220 spikes/s
+3/4. KC->KC cut  20 Hz: KCs firing {'ORN_DM1': 2840, 'ORN_DA1': 2831, 'ORN_VA1d': 2785, 'ORN_DL3': 0, 'taste': 0}; overlap of the non-empty sets >= 0.98; whole brain up to 411443 spikes/s
+3/4. KC->KC cut 100 Hz: KCs firing {'ORN_DM1': 2838, 'ORN_DA1': 2846, 'ORN_VA1d': 2836, 'ORN_DL3': 2834, 'taste': 2827}; overlap of the non-empty sets >= 0.98; whole brain up to 425130 spikes/s
+5. a random 15 % of Kenyon cells at 20 Hz, intact: runaway in 3/10
+5. a random 15 % of Kenyon cells at 20 Hz, antennal lobe silenced: runaway in 0/10

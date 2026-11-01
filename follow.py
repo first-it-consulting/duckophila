@@ -67,11 +67,13 @@ class Params:
     hfov_deg: float = 45.0       # across the upright frame's width
     white: int = 250             # grey level of the target
     min_area: int = 30           # pixels, after the opening
+    bar_aspect: float = 1.6      # height / width above which a target is the bar
 
 
-def bearing(grey: np.ndarray, p: Params = Params()) -> tuple[float, float, int] | None:
+def bearing(grey: np.ndarray, p: Params = Params()) -> tuple[float, float, int, str] | None:
     """The target in an upright grey frame: azimuth (+ = left) and elevation (+ = up) in degrees,
-    and its area in pixels; None when there is none."""
+    its area in pixels, and what it is — 'bar' when its box is more than `bar_aspect` times taller
+    than wide, else 'ball'; None when there is none."""
     h, w = grey.shape
     m = cv2.morphologyEx((grey >= p.white).astype(np.uint8), cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))
     n, _, st, cen = cv2.connectedComponentsWithStats(m)
@@ -83,7 +85,8 @@ def bearing(grey: np.ndarray, p: Params = Params()) -> tuple[float, float, int] 
         return None
     f = (w / 2) / math.tan(math.radians(p.hfov_deg / 2))
     x, y = cen[k]
-    return math.degrees(math.atan((w / 2 - x) / f)), math.degrees(math.atan((h / 2 - y) / f)), area
+    kind = 'bar' if st[k, cv2.CC_STAT_HEIGHT] > p.bar_aspect * st[k, cv2.CC_STAT_WIDTH] else 'ball'
+    return math.degrees(math.atan((w / 2 - x) / f)), math.degrees(math.atan((h / 2 - y) / f)), area, kind
 
 
 class FollowEncoder:
@@ -91,7 +94,7 @@ class FollowEncoder:
         self.p = params or Params()
         self.rf = receptive_fields(cell_type)
         self.ids = [int(f) for f in self.rf.index]
-        self.target: tuple[float, float, int] | None = None     # az, el (deg), area (px) of the last frame
+        self.target: tuple[float, float, int, str] | None = None   # az, el (deg), area (px), kind, last frame
 
     def rates_at(self, az: float, el: float) -> dict[int, float]:
         own = np.where(self.rf.side == 'left', az, -az)

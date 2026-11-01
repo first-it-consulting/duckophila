@@ -1,0 +1,7 @@
+5177 Kenyon cells, 96 MBONs (56 approach, 40 avoid), 62261 KC->MBON synapses
+intact   paired    learning index  +3.35 Hz [+2.83, +3.82]   A +2.81, B -0.54; synapses depressed 13.0%; KC spill max 0  (14 s)
+intact   unpaired  learning index  -0.39 Hz [-0.94, +0.14]   A -1.51, B -1.13; synapses depressed 7.6%; KC spill max 0  (29 s)
+intact   no reward learning index  -0.12 Hz [-0.70, +0.45]   A -1.58, B -1.45; synapses depressed 7.2%; KC spill max 0  (42 s)
+rewired  paired    learning index  +0.00 Hz [-0.01, +0.01]   A +0.00, B +0.00; synapses depressed 9.2%; KC spill max 1  (51 s)
+rewired  unpaired  learning index  -0.00 Hz [-0.01, +0.00]   A -0.00, B +0.00; synapses depressed 0.0%; KC spill max 0  (60 s)
+rewired  no reward learning index  +0.00 Hz [-0.01, +0.01]   A +0.00, B +0.00; synapses depressed 0.0%; KC spill max 1  (66 s)

@@ -37,7 +37,11 @@ way in 5 of 8 runs (heading gain 1.00). All three require the wiring: a degree-p
 connectome with the same neurons and weights produces none (0 of 20; gain 0.00; 0 of 8). Further controls show
 that DNp15 is the strongest rotation-following neuron of 383 paired descending neuron types, while the
 escape response is only partly specific to the looming detectors and only weakly lateralised, and that
-the target pathway steers only for targets below the eye's equator, and more weakly to the right. To run the model in closed loop we reimplemented it as a stepped
+the target pathway steers only for targets below the eye's equator, and more weakly to the right.
+The model's mushroom body, in contrast, has no input-specific code: any input that reaches it recruits
+the same two-thirds of its Kenyon cells, through a runaway that starts in the antennal lobe. With
+cue codes, a dopamine plasticity rule and a valence readout supplied by us, the robot learns to
+approach whichever of two targets it was petted for (4 of 6 runs; the other, 0 of 6). To run the model in closed loop we reimplemented it as a stepped
 simulator that reproduces the reference Brian2 implementation spike for spike and runs faster than real
 time on one CPU core, using an exact closed-form bound that lets neurons unable to fire before their next
 input remain unsimulated. We report what the connectome contributes, what our hand-written sensory and
@@ -86,6 +90,7 @@ That the giant fibre fires (and more reliably for LPLC2/LC4 input) & The shape o
 The sign and size of the DNp15/DNa02 left--right difference & Gains, smoothing, clamps; the body following the head \\
 Where each T4/T5 looks (FlyWire columns); front and up, from the wiring & Approach-speed gate; efference copies of the robot's own motion \\
 That LC10a $\rightarrow$ AOTU019/025 $\rightarrow$ DNa02 turns toward a small target, only below the equator & Target detector; bearing $\rightarrow$ LC10a rates and their dose; walking while a target is seen \\
+Kenyon cells $\rightarrow$ MBONs $\rightarrow$ downstream; which DANs reach which MBON & Learning: cue codes, plasticity rule, valence by compartment, antennal lobe silenced, approach gate \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -225,6 +230,30 @@ head is held straight so that the camera faces where the body goes. In closed lo
 \SI{0.45}{m} ahead of the robot swings round it at \SI{8}{\degree/s}, \SI{90}{\degree} left, back,
 \SI{90}{\degree} right and back (\SI{65}{s}), scored from the simulator's ground truth.
 
+\subsection{Learning: what we had to add}
+
+\paragraph{Cues.} The model's mushroom body does not give a cue its own Kenyon cells (Results), so each
+cue---here the ball or an upright bar, which the detector tells apart by the blob's aspect ratio---is
+given a random 10\% of the 5{,}177 Kenyon cells, driven at \SI{20}{Hz}, as models of the mushroom body
+assume random projection-neuron convergence \cite{caron2013}. \paragraph{Plasticity.} The connectome
+is static. After each brain step, every Kenyon cell $\rightarrow$ MBON weight is multiplied by
+$1 - \eta\, a_{\mathrm{KC}}\, d_{\mathrm{MBON}}$: $a$ whether the Kenyon cell fired, $d$ the rate of
+the dopamine neurons of the MBON's compartment relative to \SI{10}{Hz} (clipped at 1), $\eta = 0.5$ per
+second of pairing---dopamine-gated depression \cite{hige2015,cohn2015}. The compartment is the
+connectome's: the MBON's direct DAN inputs, weighted by synapse count (every MBON has some; the
+pairings agree with the literature, e.g.\ PAM11 with MBON07). \paragraph{Valence and reward.}
+Petting drives all 307 PAM neurons at \SI{30}{Hz} (reward); PPL1 would be punishment. An MBON's
+valence is the opposite of its compartment's dopamine \cite{aso2014b,owald2015}: mostly PAM,
+avoidance; otherwise approach (40 and 56 MBONs). A cue's value is the mean approach-MBON rate minus
+the mean avoidance-MBON rate. \paragraph{Lesion.} The antennal lobe's 1{,}152 local, projection,
+input and output neurons are silenced (outgoing synapses set to zero) for learning, since the
+runaway starts there and the robot has no olfactory input; it leaves following (DNa02 by bearing) and
+the startle (10 of 10 at \SI{1}{m/s}) unchanged. \paragraph{Behaviour.} In closed loop the robot
+follows a target (as above) only while its smoothed value exceeds its naive value---the mean over
+its first \SI{8}{s} in view---by \SI{1}{Hz}; otherwise it stands. The robot detects petting acoustically
+(an on-board classifier of head-scratch sounds) but does not yet publish it, so in simulation a script
+sends it.
+
 \section{Results}
 
 \subsection{The stepped model reproduces the reference}
@@ -362,6 +391,37 @@ rewired brain.}
 \label{fig:follow}
 \end{figure}
 
+\subsection{The mushroom body, and learning}
+
+\paragraph{No code of its own.} Kenyon cells take visual input mainly in KCg-d (30\% of their input
+synapses, from aMe12 and medulla/lobula projection neurons; KCab-p 3\%, others $<$1\%). Nothing the
+camera can drive reaches them: rotation on the camera's T4/T5, the follow target on LC10a, a
+\SI{10}{\degree} patch on every columnar neuron, and all 45{,}528 columnar neurons at \SI{30}{Hz} each
+fire none of the 31 visual projection neurons that feed Kenyon cells, which take only 3\% of their
+input from column-mapped neurons. More fundamentally, the model's Kenyon cells do not code their
+input. Four odours (one olfactory receptor neuron type each) and taste either reach no Kenyon cell or
+the same $\sim$3{,}370 of 5{,}177 (Jaccard overlap 0.99--1.00), with the whole brain at
+$\sim$\num{470000} spikes/s; a fly uses a sparse, odour-specific 5--10\%. Removing the Kenyon cells'
+synapses onto each other (38\% of their output weight) leaves it so (overlap $\geq 0.98$). The runaway
+begins in the antennal lobe, whose local and projection neurons fire just before the Kenyon cells
+do; with the antennal lobe silenced, a random 15\% of Kenyon cells at \SI{20}{Hz} never ran away
+(0 of 10, intact 3 of 10). In this model the dopamine neurons, like every other synapse whose
+transmitter is not GABA or glutamate, are excitatory.
+
+\paragraph{Open loop.} With the additions above, pairing cue A four times with petting raised its
+value over that of an unpaired cue B by \SI{3.35}{Hz} [2.83, 3.82] (10 seeds). The same cue and the
+same petting on separate trials ($-0.39$ [$-0.94$, 0.14]) and no petting ($-0.12$ [$-0.70$, 0.45])
+did not; in the rewired brain nothing changed (0.00). With valence read off the MBONs' transmitters
+instead (glutamate avoidance, acetylcholine and GABA approach \cite{aso2014b}), petting made the
+paired cue \emph{less} attractive, almost entirely through the GABAergic MBON09 in a PAM compartment.
+
+\paragraph{Closed loop.} Six runs per brain, the petted target alternating between ball and bar.
+Naive, the robot followed neither (0 of 6 each). After four 3-s pettings with one target in view
+and four presentations of the other, the petted target's value had risen by 3.8--4.2\,Hz and the
+other's by 0.3--0.8\,Hz in all six runs; the robot then walked after the petted target in 4 of 6 runs
+(net \SI{0.64}{m} [0.34, 0.94] in \SI{30}{s}; ball and bar both) and after the other in none. The two
+failures learned but lost the target while following. The rewired brain learned and followed nothing.
+
 \subsection{Controls}
 
 To ask what the connectome contributes, we repeated each experiment with brains that are wrong in one
@@ -387,7 +447,7 @@ null's 54\% [52, 56].
 \begin{table}[t]
 \centering\small
 \caption{Controls. Open loop: 20 seeds per condition (40 trials per speed across both sides); closed loop:
-20 throws, 8 following runs, through the full robot stack. 95\% Wilson (proportions) or bootstrap (means) intervals.}
+20 throws, 8 following and 6 learning runs, through the full robot stack. 95\% Wilson (proportions) or bootstrap (means) intervals.}
 \label{tab:controls}
 \begin{tabular}{lcccc}
 \toprule
@@ -404,6 +464,8 @@ DNp15 follows rotation (camera view) & yes, rank 1/383 & no & no & \\
 DNa02 follows rotation & whole eye only & no & no & \\
 DNa02 tracks target bearing, open loop & $r = 0.94$, rank 3/383 & $r = 0.00$ & & $r = 0.05$ \\
 Following, runs kept up, closed loop & 5/8 [0.31, 0.86] & 0/8 [0.00, 0.32] & & \\
+Learning index, open loop (Hz) & +3.35 [2.83, 3.82] & 0.00 & & \\
+Walks after petted / other target & 4/6 / 0/6 & 0/6 / 0/6 & & \\
 \bottomrule
 \end{tabular}
 \end{table}
@@ -439,8 +501,14 @@ and the camera/state timing measured in simulation will differ on hardware. Our 
 engineering choices, stated as such. LC10a's preference for moving over stationary objects is not modelled.
 We make no claim that the robot behaves like a fly beyond the three behaviours measured.
 
-Natural next steps are valence learning in the mushroom body with plasticity at Kenyon-cell output synapses, and the
-physical robot, with the brain on a laptop and the robot's camera streamed over WebRTC. Related efforts embody
+Learning is different in kind. The model's mushroom body does not code its input, so the cue codes,
+the plasticity, the valence assignment and a lesion are ours, and what the connectome contributes is
+narrower: the Kenyon cell $\rightarrow$ MBON wiring and its compartments, which carry a cue-specific,
+pairing-specific change through to behaviour and fail to when rewired. Why the reference model's
+antennal lobe runs away---one shared synaptic weight, no graded inhibition, excitatory
+neuromodulators---is a question for the model, and a prerequisite for using it to study learning.
+
+Natural next steps are the physical robot, with the brain on a laptop and the robot's camera streamed over WebRTC. Related efforts embody
 connectome-constrained or neuromechanical fly models in simulated bodies \cite{lobato2022,vaxenburg2025};
 here the body is a different animal's, and the interesting part is the translation between them.
 
@@ -479,6 +547,11 @@ from an AI coding assistant (Anthropic's Claude), directed and reviewed by the a
 \bibitem{vaxenburg2025} R.~Vaxenburg et al. Whole-body physics simulation of fruit fly locomotion. \emph{Nature} (2025).
 \bibitem{ribeiro2018} I.~M.~A.~Ribeiro et al. Visual projection neurons mediating directed courtship in \emph{Drosophila}. \emph{Cell} 174, 607--621 (2018).
 \bibitem{hindmarshsten2021} T.~Hindmarsh Sten, R.~Li, A.~Otopalik, V.~Ruta. Sexual arousal gates visual processing during \emph{Drosophila} courtship. \emph{Nature} 595, 549--553 (2021).
+\bibitem{caron2013} S.~J.~C.~Caron, V.~Ruta, L.~F.~Abbott, R.~Axel. Random convergence of olfactory inputs in the \emph{Drosophila} mushroom body. \emph{Nature} 497, 113--117 (2013).
+\bibitem{hige2015} T.~Hige, Y.~Aso, M.~N.~Modi, G.~M.~Rubin, G.~C.~Turner. Heterosynaptic plasticity underlies aversive olfactory learning in \emph{Drosophila}. \emph{Neuron} 88, 985--998 (2015).
+\bibitem{cohn2015} R.~Cohn, I.~Morantte, V.~Ruta. Coordinated and compartmentalized neuromodulation shapes sensory processing in \emph{Drosophila}. \emph{Cell} 163, 1742--1755 (2015).
+\bibitem{aso2014b} Y.~Aso et al. Mushroom body output neurons encode valence and guide memory-based action selection in \emph{Drosophila}. \emph{eLife} 3, e04580 (2014).
+\bibitem{owald2015} D.~Owald, S.~Waddell. Olfactory learning skews mushroom body output pathways to steer behavioral choice in \emph{Drosophila}. \emph{Curr.\ Opin.\ Neurobiol.} 35, 178--184 (2015).
 \end{thebibliography}
 
 \end{document}

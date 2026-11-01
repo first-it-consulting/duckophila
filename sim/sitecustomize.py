@@ -10,7 +10,7 @@ The wrapper, on each physics step of a model that has the prop (`make_scene.py`)
   * serves a tiny newline-JSON control port, `DUCKOPHILA_PROP_PORT` (default 7899):
       {"op": "prop", "pos": [x, y, z]}   -> {}            world frame, metres
       {"op": "drum", "pos": [x, y, z], "yaw": rad} -> {}  the striped drum's centre and rotation
-      {"op": "target", "pos": [x, y, z]} -> {}          the glowing follow target
+      {"op": "target", "pos": [x, y, z], "which": "ball"|"bar"} -> {}   a glowing follow target
       {"op": "where"}                    -> {"tof": {"pos": [...], "xmat": [9 floats]}}
                                             the first duck's ToF site, so a thrower can aim
       {"op": "props"}                    -> {"prop": [x, y, z], "drum": {"pos": [...], "quat": [...]}}
@@ -31,7 +31,7 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
         import socketserver
         import threading
 
-        _state = {'pos': None, 'drum': None, 'target': None, 'model': None, 'data': None, 'started': False}
+        _state = {'pos': None, 'drum': None, 'target': None, 'bar': None, 'model': None, 'data': None, 'started': False}
         _real_step = mujoco.mj_step
 
         class _Handler(socketserver.StreamRequestHandler):
@@ -48,7 +48,7 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                                               [math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2)])
                             ans = {}
                         elif req.get('op') == 'target':
-                            _state['target'] = [float(v) for v in req['pos']]
+                            _state['bar' if req.get('which') == 'bar' else 'target'] = [float(v) for v in req['pos']]
                             ans = {}
                         elif req.get('op') == 'props':
                             d = _state['data']
@@ -58,6 +58,8 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                                 ans['drum'] = {'pos': d.mocap_pos[k].tolist(), 'quat': d.mocap_quat[k].tolist()}
                             if _state.get('target_mocap', -1) >= 0:
                                 ans['target'] = d.mocap_pos[_state['target_mocap']].tolist()
+                            if _state.get('bar_mocap', -1) >= 0:
+                                ans['bar'] = d.mocap_pos[_state['bar_mocap']].tolist()
                         elif req.get('op') == 'where':
                             m, d = _state['model'], _state['data']
                             sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, 'tof')
@@ -82,6 +84,8 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                 _state['drum_mocap'] = int(model.body_mocapid[did]) if did >= 0 else -1
                 tid = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'duckophila_target')
                 _state['target_mocap'] = int(model.body_mocapid[tid]) if tid >= 0 else -1
+                bid2 = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'duckophila_bar')
+                _state['bar_mocap'] = int(model.body_mocapid[bid2]) if bid2 >= 0 else -1
                 if _state['mocap'] >= 0:
                     _state['model'], _state['data'] = model, data
                     port = int(os.environ.get('DUCKOPHILA_PROP_PORT', '7899'))
@@ -97,6 +101,8 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                     data.mocap_pos[_state['drum_mocap']], data.mocap_quat[_state['drum_mocap']] = _state['drum']
                 if _state['target'] is not None and _state['target_mocap'] >= 0:
                     data.mocap_pos[_state['target_mocap']] = _state['target']
+                if _state['bar'] is not None and _state['bar_mocap'] >= 0:
+                    data.mocap_pos[_state['bar_mocap']] = _state['bar']
             return _real_step(model, data, *args, **kw)
 
         mujoco.mj_step = _step

@@ -29,10 +29,18 @@ What the duck does, in the MuJoCo twin today:
   neuron DNa02 turns the walking duck toward it. Led 90° left and right, the duck kept up for the
   whole run in 5 of 8 runs (heading gain 1.00, median error 7.8°); in the other three it lost the
   target on a right turn, its weak side, and stopped.
+- **It learns what it was petted for — with a lot of help.** Two targets, a ball and a bar. At first
+  the duck only looks at both. Pet it four times while it sees one of them, and that one's value in
+  the fly's mushroom-body output neurons rises (+3.8 to +4.2 Hz, against +0.3 to +0.8 for the
+  other, in 6 of 6 runs); afterwards it walks after that target (4 of 6 runs) and never after the
+  other (0 of 6). Which target was petted alternated, so it is the pairing, not the ball. But the
+  model's mushroom body cannot do this alone: the cues' Kenyon-cell codes, the plasticity rule and
+  more are ours (below).
 
 None is wired in, and all need the real wiring: with the connectome rewired — the same
 neurons, the same weights, every neuron's number of inputs and outputs kept — the duck never
-startles (0 of 20), its head does not turn (gain 0.00), and it follows nothing (0 of 8). How specific each part is was measured
+startles (0 of 20), its head does not turn (gain 0.00), follows nothing (0 of 8), and learns
+nothing (0 of 6). How specific each part is was measured
 against controls, not assumed — and some of it is less specific than it looks (see
 [Controls](#controls-and-statistics)).
 
@@ -49,6 +57,7 @@ the docs.
 | Which way DNp15 and DNa02 say to turn | The gains, the smoothing, and that the body follows the head |
 | Where each motion detector looks (FlyWire's column map) | The approach-speed gate that spares a petting hand — so the startle's speed tuning is ours |
 | That LC10a → AOTU019/025 → DNa02 turns toward a small target, and only one below the eye's equator | The target detector and the bearing → LC10a encoder (`follow.py`), its dose; walking while a target is in view |
+| Kenyon cells → MBONs → everything after; which dopamine neurons reach which MBON | **Learning, nearly all of it** (`learning.py`): each cue's Kenyon cells, the plasticity rule, valence by compartment, the antennal lobe silenced, the approach gate |
 
 The brain is not tuned, retrained or edited. Its input is shaped like a fly's sensory neurons
 would be, and its output is read from the neurons the literature says carry it.
@@ -124,6 +133,9 @@ DUCK_SIM_CAMERAS=a sim/duck-sim             # the duck, its camera, a ball and a
 .venv/bin/python -I drum.py --speed 30 --period 8
 .venv/bin/python -I bridge.py --steer follow  # follow me: steered by DNa02 toward the glowing target
 .venv/bin/python -I lead.py                 # the target leads, 90° left and right
+.venv/bin/python -I bridge.py --steer follow --learn   # follows only what it was petted for
+.venv/bin/python -I lead.py --which bar     # the other target
+.venv/bin/python -I pet.py                  # pet the duck for 3 s (stands in for robotd's petting detector)
 sim/duck-sim down
 ```
 
@@ -147,7 +159,10 @@ the view. `MICRODUCK=` and `DUCK_SIM_RL=` point `sim/duck-sim` elsewhere.
   where each LC10a looks, read off its inputs on FlyWire's column map.
 - `geometry.py` — which depth zones see the floor, and the duck's own motion, from `robot.state`.
 - `bridge.py` — the loop: the robot's own sockets in, the brain, intents out; the Rerun view.
-- `throw.py`, `drum.py`, `lead.py` — the ball, the striped drum, and the target that leads.
+- `learning.py` — **ours**: the mushroom body made to learn — cues as sparse Kenyon-cell sets, a
+  dopamine plasticity rule on Kenyon cell → MBON synapses, value from the MBONs, petting as reward.
+- `throw.py`, `drum.py`, `lead.py`, `pet.py` — the ball, the striped drum, the targets that lead,
+  and petting.
 - `video/` — `record_sim.py` (the duck's pose, 30 Hz) and `make_video.py` (sim and brain, side by side).
 - `sim/` — puts the ball, the drum and the target into the simulator without changing it: a generated copy of
   a `microduck_rl` scene, and a `sitecustomize.py` that moves them (inert unless `DUCKOPHILA_PROP=1`).
@@ -155,7 +170,8 @@ the view. `MICRODUCK=` and `DUCK_SIM_RL=` point `sim/duck-sim` elsewhere.
   `sugar_mn9.py`, `replay.py`, `compare.py`, `realtime.py`, `bench.py` (the brain); `looming_gf.py`,
   `tof_scenes.py` (the startle); `optomotor_dn.py`, `optomotor_replay.py`, `columns_orient.py`,
   `retinotopy_check.py` (the motion pathway); `ego_nod.py`, `ego_lag.py`, `ego_flow_check.py`
-  (the efference copy); `follow_dn.py` (follow me); `controls.py`, `closed_loop_stats.py`,
+  (the efference copy); `follow_dn.py` (follow me); `mb_check.py`, `mb_learning.py`, `teach.py` (learning);
+  `controls.py`, `closed_loop_stats.py`,
   `follow_stats.py` (the controls and statistics below).
 
 ## Controls and statistics
@@ -179,12 +195,18 @@ open loop, 20 seeds; `experiments/closed_loop_stats.py`, the whole robot stack, 
 | DNa02 turns toward a target, by bearing (open loop) | **r = 0.94**, rank 3 of 383⁴ | r = 0.00 | | r = 0.05 |
 | follow me: runs the duck kept up (closed loop) | **5/8** [0.31, 0.86] | 0/8 [0.00, 0.32] | | |
 | follow me: heading gain · median error, those runs | 1.00 · 7.8° [6.6, 9.3] | — | | |
+| learning, open loop: paired cue's value gain over the unpaired (Hz)⁵ | **+3.35** [2.83, 3.82] | 0.00 | | |
+| … unpaired petting · no petting | −0.39 [−0.94, 0.14] · −0.12 [−0.70, 0.45] | 0.00 · 0.00 | | |
+| learning, closed loop: walks after the petted target · the other | **4/6** · 0/6 | 0/6 · 0/6 | | |
 
 ¹ each connection keeps its source neuron and weight, gets a random target; every neuron keeps its
 number of inputs and outputs. ² the intact brain, with the looming input sent to as many *other*
 visual projection neurons. ³ of all descending neuron types with one neuron a side, 13 follow
 rotation; DNp15 follows most strongly. ⁴ DNae002 and DNa16 track the target's bearing slightly more
-closely than DNa02 does; nine DN pairs track it at all (r > 0.5).
+closely than DNa02 does; nine DN pairs track it at all (r > 0.5). ⁵ `experiments/mb_learning.py`,
+10 seeds: the change in a cue's value (approach-MBON minus avoidance-MBON rate) after four
+pairings with petting, minus that of a cue never petted; *unpaired*: the same cue and the same
+petting, on separate trials.
 
 What this says, and does not:
 
@@ -226,7 +248,26 @@ the turn one 10° left gets (−1.8 against +5.3 Hz). Every
   (`experiments/ego_lag.py`), and the brain belongs on a laptop reaching the duck over WebRTC.
 - **A lost target stays lost.** With nothing in view the duck stands; the camera's ±22.5° is all
   the field it has to find it again in. LC10a's preference for *moving* objects is not modelled.
-- Next on the list: mushroom-body learning, with petting as the reward.
+- **The model's mushroom body has no code of its own** (`experiments/mb_check.py`). Any input
+  strong enough to reach it fires the *same* ~3,400 of 5,177 Kenyon cells: four odours, taste,
+  temperature and humidity overlap 0.98–1.00, and the whole brain runs at ~470,000 spikes/s. A fly
+  uses a sparse 5–10%, different for each odour. Cutting the Kenyon cells' synapses onto each other
+  (38% of their output) does not change it. The runaway starts in the antennal lobe: its local and
+  projection neurons fire just before the Kenyon cells explode. With the antennal lobe silenced, a
+  cue driven straight onto Kenyon cells never runs away (0/10, against 3/10 intact). The camera
+  cannot reach the mushroom body either: only KCg-d gets real visual input (30%), and nothing the
+  camera drives — motion, the follow target, all 45,000 columnar neurons at once — reaches it. So
+  learning is mostly ours.
+- **What learning borrows from us** (`learning.py`): each cue's Kenyon cells (a random 10%, as
+  models of the mushroom body assume); the rule, that dopamine depresses the synapses from Kenyon
+  cells active with it onto MBONs (the connectome has no plasticity); which MBONs mean approach and
+  which avoidance (the opposite of their compartment's dopamine, as in the literature — the
+  compartments themselves are the connectome's); the antennal lobe silenced; and the gate that
+  walks only once a cue's value has risen 1 Hz over what it was. A first version read valence off
+  the MBONs' transmitters, and petting then made a cue *less* attractive. What is the fly's: Kenyon
+  cells to MBONs to everything downstream, which dopamine neurons reach which MBON, and following.
+- **Petting is simulated.** The microduck hears head scratches (`pet-detect` in `robotd`), but
+  today only coos; it does not publish the event. `pet.py` stands in for it.
 
 ## Things that were not obvious
 

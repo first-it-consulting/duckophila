@@ -5,6 +5,7 @@
     .venv/bin/python -I bridge.py --steer body  # the head reflex, and the walking body following the head
     .venv/bin/python -I bridge.py --steer dna02 # the body turned by DNa02 directly, for comparison
     .venv/bin/python -I bridge.py --steer follow  # follow me: a small target -> LC10a -> DNa02 -> walk toward it
+    .venv/bin/python -I bridge.py --steer follow --learn   # and only what it was petted for (pet.py)
     .venv/bin/python -I bridge.py --no-viz     # without the viewer
     .venv/bin/python -I bridge.py --dry        # brain and view only; send the duck nothing
     .venv/bin/python -I bridge.py --record run.rrd   # and save the view to replay or share
@@ -34,6 +35,11 @@ found and the literature has):
     (`follow.py`'s detector) onto LC10a, and DNa02's left-minus-right -> `robot.move` vyaw while
     walking at 0.1 m/s; standing while no target is in view. The head is held straight, so the
     camera looks where the body does and `robotd`'s idle look-around stands down.
+  * `--learn` (stage 4, with `--steer follow`): the mushroom body learns (`learning.py`, all
+    ours but the wiring): the target in view is a cue — the ball or the bar, each its own sparse
+    set of Kenyon cells — petting (`pet.py`, on port 7897) drives the reward dopamine neurons, and
+    the rule depresses KC -> MBON synapses where the two coincide. The duck follows a target only
+    once its value has risen; otherwise it stands and looks. The antennal lobe is silenced for it.
 Which way and how hard come from the fly; the gains, the smoothing and the clamps are ours. A
 flinch outranks steering while it lasts.
 
@@ -439,6 +445,7 @@ def main():
     ap.add_argument('--record', type=Path, help='also save the view to this .rrd file (replay: rerun FILE.rrd)')
     ap.add_argument('--trace', type=Path, help='save every brain step (spikes, key neurons, depth, camera) to this .npz, for video/make_video.py')
     ap.add_argument('--dry', action='store_true', help='do not send the duck anything')
+    ap.add_argument('--learn', action='store_true', help='stage 4: follow only what it was petted for (with --steer follow; pet.py)')
     args = ap.parse_args()
 
     print('loading the brain (FlyWire 783)…', flush=True)
@@ -447,6 +454,15 @@ def main():
     if args.brain != 'intact':
         brain = brain.null(args.brain, seed=1)
         print(f'NULL BRAIN: {args.brain} (a control: same neurons and weights, wired wrong)', flush=True)
+    learner = None
+    if args.learn:
+        if args.steer != 'follow':
+            ap.error('--learn needs --steer follow')
+        from learning import Learner, MushroomBody, anosmic
+        brain = anosmic(brain)
+        learner = Learner(brain, MushroomBody(brain))
+        serve_petting(learner)
+        print(f'learning: antennal lobe silenced; petting on 127.0.0.1:{PET_PORT} (pet.py)', flush=True)
     enc = LoomingEncoder()
     gf = {s: [brain.index[f] for f in N.ids(N.GIANT_FIBER, s)] for s in ('left', 'right')}
     view = None if args.no_viz and not args.record else View(brain, live=not args.no_viz, record=args.record)
@@ -461,13 +477,39 @@ def main():
     import signal
     signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))       # so `kill` still writes the trace
     try:
-        loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace)
+        loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, learner)
     finally:
         if trace:
             trace.save()
 
 
-def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace):
+PET_PORT = 7897
+
+
+def serve_petting(learner):
+    """`pet.py`'s port: "pet <seconds>" -> the duck is being petted for that long."""
+    import socketserver
+
+    class H(socketserver.StreamRequestHandler):
+        def handle(self):
+            for raw in self.rfile:
+                try:
+                    secs = float(raw.split()[1])
+                    learner.pet(secs, time.monotonic())
+                    print(f'{time.strftime("%H:%M:%S")}  PETTED for {secs:.1f} s', flush=True)
+                    self.wfile.write(f'petting for {secs:.1f} s\n'.encode())
+                except (IndexError, ValueError):
+                    self.wfile.write(b'usage: pet <seconds>\n')
+
+    class S(socketserver.ThreadingTCPServer):
+        allow_reuse_address = True
+        daemon_threads = True
+
+    srv = S(('127.0.0.1', PET_PORT), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+
+
+def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, learner=None):
     head = None
     tof = Rpc(STATE / f'{args.duck}-tof.sock')
     tof.send('tof.stream', request=True)
@@ -493,8 +535,16 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace):
         rates = enc.update(f['distance_mm'], f['status'], t, floor=floor, ego=ego)
         if camera is not None:
             rates = {**camera.rates, **rates}
+        now = time.monotonic()
+        kind = None
+        if learner is not None:
+            tg = camera.enc.target
+            kind = tg[3] if tg else None
+            rates = {**rates, **learner.rates(kind, now)}
         brain.stimulate(rates)
         counts = brain.run(ms)
+        if learner is not None:
+            learner.after(counts, ms, kind, now)
         busy += time.perf_counter() - t0
         frames += 1
 
@@ -541,6 +591,8 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace):
                 if duck and head is not None and time.monotonic() >= duck.flinching_until:
                     duck.head(head)
                     seen = camera.enc.target is not None
+                    if learner is not None:
+                        seen = seen and learner.approach(kind)
                     duck.turn(vyaw if seen else 0.0, BODY_VX if seen else 0.0)
             elif duck:
                 duck.turn(vyaw, BODY_VX)
@@ -564,6 +616,9 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace):
                 tg = getattr(camera.enc, 'target', None)
                 seen = (f'target {tg[0]:+5.1f} deg' if tg else 'no target') if args.steer == 'follow' \
                     else f'flow {camera.enc.mean_u:+5.1f} deg/s'
+                if learner is not None:
+                    seen += ''.join(f', {k} {"naive" if learner.learned(k) is None else f"{learner.learned(k):+.1f} Hz"}'
+                                    for k in sorted(learner.seen)) + (' PETTING' if learner.petting(now) else '')
                 line += (f', camera {camera.fps:.0f} fps, {seen}, '
                          f'{steer_dn} R-L {diff:+5.1f} Hz -> {vyaw:+.2f} rad/s'
                          + (f', head yaw {head[2]:+.2f} rad (measured {body.state["joints"][body.head_yaw]:+.2f})'

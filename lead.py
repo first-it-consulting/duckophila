@@ -22,7 +22,8 @@ import time
 import numpy as np
 
 PARKED = [0.0, 0.0, -5.0]
-HEIGHT_M = 0.04           # the target's centre: its radius, so it sits on the floor
+HEIGHT_M = 0.04           # the ball's centre: its radius, so it sits on the floor
+BAR_HALF_M = 0.05         # the bar's centre: half its height, standing on the floor
 
 
 def heading(xmat) -> float:
@@ -36,7 +37,7 @@ def wrap(a: float) -> float:
 
 def schedule(speed_deg, angle_deg, hold_s):
     """(duration s, rate deg/s) segments: hold, left, hold, back, hold, right, hold, back, hold."""
-    turn = angle_deg / speed_deg
+    turn = angle_deg / speed_deg if speed_deg else 0.0
     return [(hold_s, 0), (turn, speed_deg), (hold_s, 0), (turn, -speed_deg), (hold_s, 0),
             (turn, -speed_deg), (hold_s, 0), (turn, speed_deg), (hold_s, 0)]
 
@@ -47,6 +48,7 @@ def main():
     ap.add_argument('--angle', type=float, default=90.0, help='deg each swing')
     ap.add_argument('--hold', type=float, default=4.0, help='s between swings')
     ap.add_argument('--distance', type=float, default=0.45, help='m from the duck')
+    ap.add_argument('--which', choices=('ball', 'bar'), default='ball', help='which target leads')
     ap.add_argument('--log', help='write the 20 Hz log here (JSON)')
     ap.add_argument('--off', action='store_true')
     ap.add_argument('--port', type=int, default=7899)
@@ -58,7 +60,9 @@ def main():
         f.write(json.dumps(r) + '\n'); f.flush(); return json.loads(f.readline())
 
     if args.off:
-        ask({'op': 'target', 'pos': PARKED}); return
+        for which in ('ball', 'bar'):
+            ask({'op': 'target', 'pos': PARKED, 'which': which})
+        return
     w = ask({'op': 'where'})['tof']
     psi = heading(w['xmat'])
     segs = schedule(args.speed, args.angle, args.hold)
@@ -78,7 +82,7 @@ def main():
             w = ask({'op': 'where'})['tof']
             p = np.array(w['pos'])
             ask({'op': 'target', 'pos': [p[0] + args.distance * math.cos(psi), p[1] + args.distance * math.sin(psi),
-                                          HEIGHT_M]})
+                                          HEIGHT_M if args.which == 'ball' else BAR_HALF_M], 'which': args.which})
             duck = heading(w['xmat'])
             rows.append({'t': round(t, 3), 'unix': time.time(), 'segment': k, 'target_deg': math.degrees(psi),
                          'duck_deg': math.degrees(duck), 'error_deg': math.degrees(wrap(psi - duck)),
@@ -87,13 +91,15 @@ def main():
     except KeyboardInterrupt:
         pass
     finally:
-        ask({'op': 'target', 'pos': PARKED})
+        ask({'op': 'target', 'pos': PARKED, 'which': args.which})
     # unwrap both headings, so a run that went round reads as such
     for key in ('target_deg', 'duck_deg'):
         u = np.degrees(np.unwrap(np.radians([r[key] for r in rows])))
         for r, v in zip(rows, u):
             r[key] = float(v)
     e = np.abs([r['error_deg'] for r in rows])
+    if not rows:
+        return
     print(f'done: |error| median {np.median(e):.1f} deg, in view (|error| < 20) {np.mean(e < 20):.0%}, '
           f'duck turned {rows[-1]["duck_deg"] - rows[0]["duck_deg"]:+.0f} deg overall')
     if args.log:

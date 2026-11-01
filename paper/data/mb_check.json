@@ -1,0 +1,110 @@
+{
+ "visual_share": {
+  "KCa'b'-ap1": 0.0,
+  "KCab": 0.0,
+  "KCab-p": 0.0327,
+  "KCapbp-ap1": 0.0003,
+  "KCapbp-ap2": 0.0,
+  "KCapbp-m": 0.0,
+  "KCg-d": 0.3028,
+  "KCg-m": 0.0011,
+  "KCg-s1": 0.4892,
+  "KCg-s2": 0.0223,
+  "KCg-s3": 0.0326
+ },
+ "camera": {
+  "drum on camera T4/T5": {
+   "kc": 0,
+   "vis_pn": 0
+  },
+  "follow target on LC10a": {
+   "kc": 0,
+   "vis_pn": 0
+  },
+  "10-deg card, all columnar": {
+   "kc": 0,
+   "vis_pn": 0
+  },
+  "all columnar, both eyes": {
+   "kc": 0,
+   "vis_pn": 0
+  }
+ },
+ "vis_pn_direct": {
+  "kcg_d": 147
+ },
+ "code": {
+  "intact|20": {
+   "kcs": {
+    "ORN_DM1": 3365,
+    "ORN_DA1": 3365,
+    "ORN_VA1d": 3364,
+    "ORN_DL3": 0,
+    "taste": 0
+   },
+   "brain_hz": {
+    "ORN_DM1": 466176.0,
+    "ORN_DA1": 460611.6666666666,
+    "ORN_VA1d": 264568.6666666666,
+    "ORN_DL3": 1690.9999999999998,
+    "taste": 17150.666666666664
+   },
+   "jaccard_min": 0.9958481613285883
+  },
+  "intact|100": {
+   "kcs": {
+    "ORN_DM1": 3385,
+    "ORN_DA1": 3380,
+    "ORN_VA1d": 3373,
+    "ORN_DL3": 3362,
+    "taste": 3364
+   },
+   "brain_hz": {
+    "ORN_DM1": 479106.3333333333,
+    "ORN_DA1": 482220.3333333334,
+    "ORN_VA1d": 472522.6666666667,
+    "ORN_DL3": 467720.0,
+    "taste": 404349.3333333333
+   },
+   "jaccard_min": 0.9896816037735849
+  },
+  "KC->KC cut|20": {
+   "kcs": {
+    "ORN_DM1": 2840,
+    "ORN_DA1": 2831,
+    "ORN_VA1d": 2785,
+    "ORN_DL3": 0,
+    "taste": 0
+   },
+   "brain_hz": {
+    "ORN_DM1": 411442.6666666666,
+    "ORN_DA1": 407686.6666666666,
+    "ORN_VA1d": 174528.3333333333,
+    "ORN_DL3": 1683.6666666666667,
+    "taste": 15822.333333333334
+   },
+   "jaccard_min": 0.9806338028169014
+  },
+  "KC->KC cut|100": {
+   "kcs": {
+    "ORN_DM1": 2838,
+    "ORN_DA1": 2846,
+    "ORN_VA1d": 2836,
+    "ORN_DL3": 2834,
+    "taste": 2827
+   },
+   "brain_hz": {
+    "ORN_DM1": 422709.0,
+    "ORN_DA1": 425129.6666666666,
+    "ORN_VA1d": 416596.3333333334,
+    "ORN_DL3": 414126.0,
+    "taste": 267194.0
+   },
+   "jaccard_min": 0.9797627355198884
+  }
+ },
+ "runaway": {
+  "intact": 3,
+  "antennal lobe silenced": 0
+ }
+}

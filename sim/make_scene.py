@@ -6,7 +6,8 @@ white panels, 0.5 m in radius and 0.6 m tall — one black/white pair every 15 d
 spatial period flies' optomotor response likes — also a mocap body, also parked below the floor.
 The target is what the duck follows (`follow.py`): a small sphere (r = 4 cm) that lights itself
 and so is the brightest thing in the grey sim camera — a stand-in for a detector's output, parked
-too. `sitecustomize.py` moves all three. Asset directories are made absolute so the copy can
+too; and a second one, an upright bar (3 x 3 x 10 cm), the other cue the duck can learn about
+(`learning.py`) — told apart from the ball by its shape. `sitecustomize.py` moves them all. Asset directories are made absolute so the copy can
 live here, outside the simulator's tree — the point being that `microduck_rl` stays untouched.
 
     python make_scene.py <scene.xml in microduck_rl> <out.xml>
@@ -44,6 +45,9 @@ spec.add_material(name='duckophila_glow', rgba=[1, 1, 1, 1], emission=1.0)
 target = spec.worldbody.add_body(name=TARGET, mocap=True, pos=[0.0, 0.0, -5.0])
 target.add_geom(type=mujoco.mjtGeom.mjGEOM_SPHERE, size=[TARGET_R, 0, 0], material='duckophila_glow',
                 contype=0, conaffinity=0)
+bar = spec.worldbody.add_body(name='duckophila_bar', mocap=True, pos=[0.0, 0.0, -5.0])
+bar.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.015, 0.015, 0.05], material='duckophila_glow',
+             contype=0, conaffinity=0)
 spec.compile()  # fail here, not in the simulator
 out.write_text(spec.to_xml())
 print(out)

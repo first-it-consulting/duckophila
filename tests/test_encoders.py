@@ -37,8 +37,8 @@ def test_target_bearing_sign_and_scale():
     assert bearing(g) is None
     g[400:430, 180 - 76 - 15:180 - 76 + 15] = 255                        # 10 deg left, below centre
     g[100, :] = 255                                                       # a thin grid line: not a target
-    az, el, _ = bearing(g)
-    assert abs(az - 10.0) < 0.5 and el < 0
+    az, el, _, kind = bearing(g)
+    assert abs(az - 10.0) < 0.5 and el < 0 and kind == "ball"
 
 
 @needs_annotations
@@ -55,3 +55,10 @@ def test_follow_rates_mirror_between_eyes():
         a, b = (np.array(list(enc.rates_at(s, -10.0).values())) for s in (az, -az))
         assert a[side == 'left'].sum() > a[side == 'right'].sum()
         assert b[side == 'right'].sum() > b[side == 'left'].sum()
+
+
+def test_target_kind_by_shape():
+    from follow import bearing
+    g = np.full((640, 360), 90, np.uint8)
+    g[380:460, 170:190] = 255                                              # 20 wide, 80 tall: the bar
+    assert bearing(g)[3] == 'bar'

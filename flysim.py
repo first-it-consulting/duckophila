@@ -248,6 +248,16 @@ class FlyBrain:
             raise ValueError(kind)
         return b
 
+    def silence(self, fids) -> 'FlyBrain':
+        """A lesion, as fly geneticists silence a circuit: a copy in which these neurons' outgoing
+        synapses carry nothing. They still receive input and can be read; they no longer act."""
+        b = self.copy()
+        b.weights = self.weights.copy()
+        mute = np.zeros(self.n, dtype=np.bool_)
+        mute[[self.index[int(f)] for f in fids if int(f) in self.index]] = True
+        b.weights[np.repeat(mute, np.diff(self.indptr))] = 0.0
+        return b
+
     def copy(self) -> 'FlyBrain':
         """An independent brain in the same state — for many trials off one load."""
         b = FlyBrain.__new__(FlyBrain)
