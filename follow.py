@@ -143,6 +143,26 @@ class MovingTarget:
         frames, if known — on a duck, from the gyro and the efference copy. Without it, and with
         `compensate`, it is estimated from the image (phase correlation): the room's shift."""
         p = self.p
+        mo = self.motion(grey, shift)
+        if mo is None:
+            return None
+        m, st, ok, h, w = mo
+        hit = None
+        if ok:
+            k = max(ok, key=(lambda k: st[k, cv2.CC_STAT_AREA]) if p.pick == 'largest'
+                    else (lambda k: st[k, cv2.CC_STAT_TOP] + st[k, cv2.CC_STAT_HEIGHT]))
+            x0, y0, bw, bh, area = st[k]
+            foot = m[y0 + bh - max(1, bh // 4): y0 + bh, x0: x0 + bw]
+            xs = np.flatnonzero(foot.any(0))
+            hit = (x0 + float(xs.mean()) if len(xs) else x0 + bw / 2, float(y0 + bh), int(area))
+            self._width = float(bw)
+        return self._track_hit(hit, h, w)
+
+    def motion(self, grey: np.ndarray, shift=None):
+        """The motion image of this frame against `lag` frames ago, the camera's own motion taken off,
+        and which of its blobs pass the filters: (mask, blob stats, kept blob labels, h, w), or None
+        while the first frames come in."""
+        p = self.p
         g = cv2.GaussianBlur(grey, (5, 5), 0)
         self.past.append(g)
         if len(self.past) <= p.lag:
@@ -166,9 +186,10 @@ class MovingTarget:
         m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))   # thin edge shimmer goes
         m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
         self.mask = m
-        hit = None
+        n, labels, st, _ = cv2.connectedComponentsWithStats(m)
+        self.labels = labels
+        ok = []
         if m.mean() < p.ego_area:
-            n, _, st, _ = cv2.connectedComponentsWithStats(m)
             ok = [k for k in range(1, n) if p.min_area * h * w <= st[k, cv2.CC_STAT_AREA] <= p.max_area * h * w
                   and st[k, cv2.CC_STAT_AREA] >= p.min_fill * st[k, cv2.CC_STAT_WIDTH] * st[k, cv2.CC_STAT_HEIGHT]
                   and (p.bottom_px < 0 or st[k, cv2.CC_STAT_TOP] + st[k, cv2.CC_STAT_HEIGHT] < h - p.bottom_px)]
@@ -181,14 +202,10 @@ class MovingTarget:
                 else:
                     ok = [k for k in ok if st[k, cv2.CC_STAT_LEFT] + st[k, cv2.CC_STAT_WIDTH] < w - edge]
                 ok = [k for k in ok if not self._scenery(raw, g, st[k])]
-            if ok:
-                k = max(ok, key=(lambda k: st[k, cv2.CC_STAT_AREA]) if p.pick == 'largest'
-                        else (lambda k: st[k, cv2.CC_STAT_TOP] + st[k, cv2.CC_STAT_HEIGHT]))
-                x0, y0, bw, bh, area = st[k]
-                foot = m[y0 + bh - max(1, bh // 4): y0 + bh, x0: x0 + bw]
-                xs = np.flatnonzero(foot.any(0))
-                hit = (x0 + float(xs.mean()) if len(xs) else x0 + bw / 2, float(y0 + bh), int(area))
-                self._width = float(bw)
+        return m, st, ok, h, w
+
+    def _track_hit(self, hit, h, w):
+        p = self.p
         if hit and self.last and math.dist(hit[:2], self.last) > max(p.jump_px, p.jump_widths * self.width):
             self.run = 0                              # somewhere else: a new target starts over
         if hit:
@@ -230,11 +247,100 @@ class MovingTarget:
         return bx * room > 0 and abs(bx) >= self.p.parallax * abs(room)
 
 
+@dataclass
+class PopulationParams:
+    cell_deg: float = 2.0        # the motion image is pooled into cells about this size
+    disc_deg: float = 2.5        # a moving disc this big, centred on a receptive field, drives it at max_rate (motion is mostly edges)
+    tau_s: float = 0.3           # LC10a drive decays with this time constant when the motion stops
+    foot_deg: float = 8.0        # of each moving blob only its lowest this many degrees drive (0: all of it)
+
+
+class PopulationMotion:
+    """The real-world encoder without a target: every LC10a driven by the motion in its own receptive field.
+
+    `MovingTarget` turns the motion image into one bearing and so has to pick: which blob, whether it
+    is the same one as before, whether it has run long enough. A person has two feet, and they move in
+    turn; picking makes the bearing hop between them. A fly does not pick here — LC10a are ~100
+    columnar neurons a side, each looking at its own patch — so this does not either: the same motion
+    image (`MovingTarget.motion`: the camera's own motion taken off, flicker, edge shimmer, parallax
+    and blobs too big to be a small object removed), of each blob only its lowest `foot_deg` — where a
+    walking person meets the floor (open loop, `experiments/population_dn.py`: two feet low in the view
+    turn DNa02 as the glowing ball does, +12 Hz at 15 degrees; the whole legs with them, up to +30
+    degrees, turn it by 0.3: too much of LC10a driven at once and the pathway no longer steers — it is
+    a small-object pathway), pooled into cells, and each LC10a driven by the
+    moving area under its receptive field, weighted as `FollowEncoder.rates_at` weights a point target
+    (a Gaussian of `sigma_deg`). A moving disc of `disc_deg` at a receptive field's centre gives
+    `max_rate`, as the point encoder does for a target there; more moving area does not give more. The
+    drive decays with `tau_s` when the motion stops, so a foot resting between steps fades, not
+    vanishes. Ours, all of it — what DNa02 makes of the two sides is the connectome's."""
+
+    def __init__(self, rf, p: Params, pp: PopulationParams | None = None, fps: float = 30.0):
+        self.rf, self.p, self.pp, self.fps = rf, p, pp or PopulationParams(), fps
+        self.det = MovingTarget(hfov_deg=p.hfov_deg, fps=fps)
+        self.grid = None
+        self.drive = np.zeros(len(rf))
+        self.mask = None
+        self.shift = (0.0, 0.0)
+
+    def _weights(self, h, w):
+        """Per LC10a, the weight of each cell (deg^2), from its receptive field's centre on its own eye."""
+        f = (w / 2) / math.tan(math.radians(self.p.hfov_deg / 2))
+        c = max(1, int(round(f * math.radians(self.pp.cell_deg))))
+        gh, gw = h // c, w // c
+        xs = (np.arange(gw) + 0.5) * c; ys = (np.arange(gh) + 0.5) * c
+        az = np.degrees(np.arctan((w / 2 - xs) / f)); el = np.degrees(np.arctan((h / 2 - ys) / f))
+        cell_area = (np.degrees(c / f)) ** 2
+        AZ, EL = np.meshgrid(az, el)                                     # image az (+ left), el (+ up)
+        own = np.where(self.rf.side.to_numpy()[:, None] == 'left', AZ.ravel()[None], -AZ.ravel()[None])
+        d2 = (self.rf.az.to_numpy()[:, None] - own) ** 2 + (self.rf.el.to_numpy()[:, None] - EL.ravel()[None]) ** 2
+        W = np.exp(-d2 / (2 * self.p.sigma_deg ** 2)) * cell_area
+        s, r = self.p.sigma_deg, self.pp.disc_deg
+        ref = 2 * math.pi * s ** 2 * (1 - math.exp(-r ** 2 / (2 * s ** 2)))   # a disc of r at the centre
+        self.grid = (c, gh, gw, W / ref, AZ, EL)
+
+    def __call__(self, grey, shift=None):
+        """Updates the drive; returns a summary for logs — the motion-weighted bearing of what drives
+        LC10a (az, el, moving cells, 'moving') — or None when nothing does."""
+        mo = self.det.motion(grey, shift)
+        self.shift = self.det.shift
+        k = math.exp(-1.0 / (self.fps * self.pp.tau_s))
+        if mo is None:
+            self.drive *= k
+            return None
+        m, st, ok, h, w = mo
+        keep = np.zeros_like(m, np.float32)
+        f = (w / 2) / math.tan(math.radians(self.p.hfov_deg / 2))
+        foot_px = f * math.tan(math.radians(self.pp.foot_deg)) if self.pp.foot_deg > 0 else h
+        for j in ok:                                       # each blob's lowest foot_deg: where it meets the floor
+            x0, y0, bw, bh = (int(v) for v in st[j, :4])
+            top = max(y0, int(y0 + bh - foot_px))
+            keep[top:y0 + bh, x0:x0 + bw] = (self.det.labels[top:y0 + bh, x0:x0 + bw] == j)
+        self.mask = keep.astype(np.uint8)
+        if self.grid is None or self.grid[1] != h // self.grid[0]:
+            self._weights(h, w)
+        c, gh, gw, W, AZ, EL = self.grid
+        frac = cv2.resize(keep[:gh * c, :gw * c], (gw, gh), interpolation=cv2.INTER_AREA).ravel()
+        now = np.minimum(1.0, W @ frac)
+        self.drive = np.maximum(now, self.drive * k)          # rises with the motion, decays after it
+        if frac.sum() == 0:
+            return None
+        wt = frac / frac.sum()
+        return float(wt @ AZ.ravel()), float(wt @ EL.ravel()), int((frac > 0).sum()), 'moving'
+
+    def rates(self) -> np.ndarray:
+        return self.p.max_rate * self.drive
+
+
 class FollowEncoder:
     def __init__(self, params: Params | None = None, cell_type: str = 'LC10a', detector: str = 'white'):
         self.p = params or Params()
-        self.detect = (lambda g: bearing(g, self.p)) if detector == 'white' else MovingTarget(hfov_deg=self.p.hfov_deg)
         self.rf = receptive_fields(cell_type)
+        if detector == 'white':
+            self.detect = lambda g: bearing(g, self.p)
+        elif detector == 'moving':
+            self.detect = MovingTarget(hfov_deg=self.p.hfov_deg)
+        else:
+            self.detect = PopulationMotion(self.rf, self.p)
         self.ids = [int(f) for f in self.rf.index]
         self.target: tuple[float, float, int, str] | None = None   # az, el (deg), area (px), kind, last frame
 
@@ -250,9 +356,9 @@ class FollowEncoder:
         `camera_yaw_rate_deg` (+ = left; the gyro plus the head's own turn), or better `camera_turn_deg`,
         the camera's turn between the two frames the detector compares, gives the moving detector the
         camera's turn instead of an estimate from the image: turning left moves the room right."""
-        if isinstance(self.detect, MovingTarget):
+        if isinstance(self.detect, (MovingTarget, PopulationMotion)):
             shift = None
-            d = self.detect
+            d = self.detect.det if isinstance(self.detect, PopulationMotion) else self.detect
             f = (grey.shape[1] / 2) / math.tan(math.radians(d.hfov / 2))
             if camera_turn_deg is not None:
                 shift = (f * math.tan(math.radians(camera_turn_deg)), None)
@@ -261,6 +367,9 @@ class FollowEncoder:
                 # image estimate of the sideways shift and is 'compensated' away; it moves little vertically.
                 shift = (f * math.tan(math.radians(camera_yaw_rate_deg * d.p.lag / d.fps)), None)
             self.target = self.detect(grey, shift)
+            if isinstance(self.detect, PopulationMotion):
+                r = self.detect.rates()
+                return {f: float(x) if x > 1.0 else 0.0 for f, x in zip(self.ids, r)}
         else:
             self.target = self.detect(grey)
         if self.target is None:

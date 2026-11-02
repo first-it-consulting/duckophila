@@ -504,7 +504,7 @@ def main():
     ap.add_argument('--trace', type=Path, help='save every brain step (spikes, key neurons, depth, camera) to this .npz, for video/make_video.py')
     ap.add_argument('--dry', action='store_true', help='do not send the duck anything')
     ap.add_argument('--link', metavar='WS_URL', help="a duck on the network, over WebRTC: its signalling server, ws://<duck>:8443")
-    ap.add_argument('--detector', choices=('white', 'moving'), default='white',
+    ap.add_argument('--detector', choices=('white', 'moving', 'population'), default='white',
                     help="--steer follow's target detector: the sim's glowing target, or follow.MovingTarget, the real-world one")
     ap.add_argument('--learn', action='store_true', help='stage 4: follow only what it was petted for (with --steer follow; pet.py)')
     args = ap.parse_args()
@@ -661,7 +661,7 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
                 if duck and head is not None and time.monotonic() >= duck.flinching_until:
                     duck.head(head)
                     seen = camera.enc.target is not None
-                    if args.detector == 'moving':
+                    if args.detector in ('moving', 'population'):
                         # a stepping person is seen in bursts; walk-stop-walk at the brain's rate is a
                         # command velstand never takes its first step on. Keep walking FOLLOW_MEMORY_S
                         # after the target was last seen (ours; the glowing target is never intermittent)

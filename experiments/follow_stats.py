@@ -3,8 +3,8 @@
     DUCK_SIM_CAMERAS=a sim/duck-sim
     .venv/bin/python -I experiments/follow_stats.py [n_runs]      # -> results/follow.json
     .venv/bin/python -I experiments/follow_stats.py --summary     # the table again, from the JSON
-    .venv/bin/python -I experiments/follow_stats.py 8 --feet      # a person's feet and the real-world detector
-                                                                  # (follow.MovingTarget) -> results/follow_feet.json
+    .venv/bin/python -I experiments/follow_stats.py 8 --feet      # a person's feet and the real-world encoder
+                                                                  # (follow.PopulationMotion) -> results/follow_feet.json
 
 Per run: `bridge.py --steer follow` with the brain given, and `lead.py` swinging the target round
 the duck (8 deg/s; 90 left, back, 90 right, back; 65 s). Scored from the simulator's truth:
@@ -28,7 +28,9 @@ import subprocess
 FEET = '--feet' in sys.argv
 OUT = ROOT / 'results' / ('follow_feet' if FEET else 'follow')
 RESULT = ROOT / 'results' / ('follow_feet.json' if FEET else 'follow.json')
-BRIDGE_EXTRA = ['--detector', 'moving'] if FEET else []
+BRIDGE_EXTRA = (['--detector', 'population'] if FEET else []) + (['--no-startle'] if '--no-startle' in sys.argv else [])
+if '--no-startle' in sys.argv:    # the legs loom on the ToF; to see the following on its own
+    RESULT = RESULT.with_name(RESULT.stem + '_nostartle.json')
 LEAD_EXTRA = ['--which', 'feet'] if FEET else []
 OUT.mkdir(parents=True, exist_ok=True)
 

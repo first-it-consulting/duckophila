@@ -64,11 +64,11 @@ def main():
     ap.add_argument('--hfov', type=float, default=68.0, help="the phone's horizontal field of view, degrees")
     ap.add_argument('--out', type=Path, default=ROOT / 'results' / 'footage')
     ap.add_argument('--brain', default='intact', choices=('intact', 'shuffled'))
-    ap.add_argument('--detector', default='white', choices=('white', 'moving'), help="follow.py's sim detector, or the real-world one")
+    ap.add_argument('--detector', default='white', choices=('white', 'moving', 'population'), help="follow.py's sim detector, or the real-world one")
     ap.add_argument('--white', type=int, help="the detector's brightness threshold (default follow.py's, 250)")
     a = ap.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
-    name = a.video.stem + ('' if a.brain == 'intact' else f'_{a.brain}') + (f'_white{a.white}' if a.white else '') + ('_moving' if a.detector == 'moving' else '')
+    name = a.video.stem + ('' if a.brain == 'intact' else f'_{a.brain}') + (f'_white{a.white}' if a.white else '') + ('' if a.detector == 'white' else f'_{a.detector}')
 
     brain = FlyBrain(783, seed=0)
     if a.brain == 'shuffled':
