@@ -29,6 +29,7 @@ OUT.mkdir(parents=True, exist_ok=True)
 
 def run(brain, k):
     tag = f'{brain}_{k}'
+    subprocess.run([PY, '-I', 'drum.py', '--off'], cwd=ROOT, check=True)   # a drum left standing hides the target
     br = start(['bridge.py', '--no-viz', '--steer', 'follow', '--brain', brain], OUT / f'{tag}.log')
     wait_for(OUT / f'{tag}.log', 'wired'); time.sleep(3)
     subprocess.run([PY, '-I', 'lead.py', '--log', str(OUT / f'{tag}.json')], cwd=ROOT, check=True, capture_output=True)

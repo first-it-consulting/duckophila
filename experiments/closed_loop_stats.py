@@ -80,6 +80,7 @@ def optomotor(brain, seconds=60, period=5.0):
     drum = start(['drum.py', '--speed', '30', '--period', str(period), '--no-follow'], OUT / f'{tag}_drum.log')
     time.sleep(seconds)
     stop(drum); stop(rec); stop(br)
+    subprocess.run([PY, '-I', 'drum.py', '--off'], cwd=ROOT, check=True)   # stopped is not parked: it would hide what comes next
     s = np.load(OUT / f'{tag}_sim.npz')
     t = s['t'] - s['t'][0]
     head = np.unwrap(s['joints'][:, 7])                               # head_yaw, wire order

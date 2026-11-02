@@ -28,12 +28,12 @@ simulation of its body. The robot's time-of-flight depth sensor is translated in
 looming-sensitive visual projection neurons (LPLC2, LC4); its camera, through dense optic flow, into input
 to the fly's elementary motion detectors (T4/T5), each placed at its own visual column using FlyWire's
 column map. Motor commands are read out from identified descending neurons. Without any tuning of the
-connectome, the model (i) fires its giant fibre (DNp01) to objects approaching the robot's face (19 of
+connectome, the model (i) fires its giant fibre (DNp01) to objects approaching the robot's face (20 of
 20 throws in closed loop), and (ii) produces a syndirectional optomotor response in DNp15/DNHS1 that turns
 the robot's head---and, through a coupling rule of ours, its walking body---with a rotating striped drum,
-at a closed-loop gain of 0.28 [0.24, 0.32], and (iii) turns the walking robot toward a small target
+at a closed-loop gain of 0.23 [0.21, 0.27], and (iii) turns the walking robot toward a small target
 through LC10a, the anterior optic tubercle and DNa02, keeping up with a target led \SI{90}{\degree} each
-way in 5 of 8 runs (heading gain 1.00). All three require the wiring: a degree-preserving rewired
+way in 4 of 8 runs (heading gain 1.00). All three require the wiring: a degree-preserving rewired
 connectome with the same neurons and weights produces none (0 of 20; gain 0.00; 0 of 8). Further controls show
 that DNp15 is the strongest rotation-following neuron of 383 paired descending neuron types, while the
 escape response is only partly specific to the looming detectors and only weakly lateralised, and that
@@ -41,7 +41,7 @@ the target pathway steers only for targets below the eye's equator, and more wea
 The model's mushroom body, in contrast, has no input-specific code: any input that reaches it recruits
 the same two-thirds of its Kenyon cells, through a runaway that starts in the antennal lobe. With
 cue codes, a dopamine plasticity rule and a valence readout supplied by us, the robot learns to
-approach whichever of two targets it was petted for (4 of 6 runs; the other, 0 of 6). The brain can
+approach whichever of two targets it was petted for (5 of 6 runs; the other, 0 of 6). The brain can
 also drive the robot from a laptop over WebRTC, with every camera frame dated on the robot's clock. To run the model in closed loop we reimplemented it as a stepped
 simulator that reproduces the reference Brian2 implementation spike for spike and runs faster than real
 time on one CPU core, using an exact closed-form bound that lets neurons unable to fire before their next
@@ -164,7 +164,7 @@ over a data channel (\texttt{link.py}). WebRTC frames carry no capture time, so 
 the RTCP sender reports and a pair of robot clock readings onto the robot's monotonic clock, the one
 its state stream is stamped with; frame and state then pair without the network delay. Against the
 simulated robot's media daemon, following, the startle and the head reflex (gain 0.24 [0.19, 0.28],
-against 0.28 locally) work over this path.
+against 0.23 locally) work over this path.
 
 \subsection{Startle: depth sensor to looming detectors}
 
@@ -304,8 +304,8 @@ are recruited. On synthetic ToF scenes ray-cast with the sensor's beam geometry 
 \SI{5}{cm} ball approaching from \SI{1.2}{m}, left or right, 40 trials per speed), the giant fibre fired
 in 0/40 trials at \SI{0.2}{m/s}, 21/40 at \SI{0.4}{m/s}, 40/40 at each of \SIrange{0.6}{1.5}{m/s}, and
 28/40 at \SI{2.0}{m/s}, with a mean latency of \SI{0.54}{s} from onset for approaches $\geq$\SI{1}{m/s}.
-Through the full robot stack in the simulator, 19 of 20 balls at \SI{1.5}{m/s} produced a startle
-(0.95, 95\% CI [0.76, 0.99]), latency \SI{0.53}{s}, and 0 of 20 hands at \SI{0.2}{m/s}
+Through the full robot stack in the simulator, 20 of 20 balls at \SI{1.5}{m/s} produced a startle
+(1.00, 95\% CI [0.84, 1.00]), latency \SI{0.43}{s}, and 0 of 20 hands at \SI{0.2}{m/s}
 (Table~\ref{tab:controls}). The speed tuning is largely ours: the approach-speed gate imposes the cut,
 and the input null below shows the same cut. Very fast approaches are missed 30\% of the time by the
 encoder, and walking towards a wall at \SI{0.3}{m/s} produced a false startle in 6 of 20 trials.
@@ -339,8 +339,8 @@ DNa02 flip; the camera's limited elevation range is not. Likewise, no expansion 
 view, up to \SI{400}{\degree/s}, drove LPLC2 appreciably; looming therefore remains the ToF's task.
 
 \paragraph{Closed loop.} With DNp15 driving head yaw, the robot's head follows the drum in both
-directions as a triangle wave at \SIrange{8}{12}{\degree/s} for a \SI{30}{\degree/s} drum (closed-loop
-gain 0.28, 95\% CI [0.24, 0.32], over 12 drum phases: partial compensation) and holds still when the drum is still; higher gains
+directions as a triangle wave at about \SI{7}{\degree/s} for a \SI{30}{\degree/s} drum (closed-loop
+gain 0.23, 95\% CI [0.21, 0.27], over 12 drum phases: partial compensation) and holds still when the drum is still; higher gains
 oscillate, given $\sim$\SI{0.3}{s} of loop latency. With the head-led body coupling, the walking robot
 turns with the drum at a mean of $+5$ and \SI{-9}{\degree/s} (peaks $\pm$\SIrange{15}{20}{\degree/s})
 against an intrinsic gait drift of \SI{-4.6}{\degree/s}. Without the walking efference copy, three
@@ -383,10 +383,11 @@ the left population at \SI{931}{Hz} in total against \SI{782}{Hz}), so DNa02 lea
 the right gets about a third of the turn of one to the left. Whether this asymmetry is the fly's or our
 column-to-angle approximation we cannot tell.
 
-\paragraph{Closed loop.} In 5 of 8 runs the robot kept the target in view throughout, with a heading gain
-of 1.00 and a median error of \SI{7.8}{\degree} [6.6, 9.3]. In the other three it lost the target where the
-target reversed from the leftward swing into a rightward turn, fell more than the camera's half-width
-behind and, with nothing in view, stood. The rewired brain never followed (0 of 8, 95\% CI [0.00, 0.32];
+\paragraph{Closed loop.} In 4 of 8 runs the robot kept the target in view throughout, with a heading gain
+of 1.00 and a median error of \SI{7.8}{\degree} [7.4, 8.2]. In two of the other four it trailed just
+outside the camera's half-width (at most \SI{29}{\degree}) from the first reversal on and kept turning
+with the target (gain 1.00 and 0.94); in two it fell further behind after a reversal and lost the target
+for part of the run (gain 0.56 and 0.69). Over all eight runs the mean heading gain was 0.90 [0.78, 1.00]. The rewired brain never followed (0 of 8, 95\% CI [0.00, 0.32];
 gain $-0.01$). No run of either brain produced a startle.
 
 \begin{figure}[t]
@@ -395,7 +396,7 @@ gain $-0.01$). No run of either brain produced a startle.
 \caption{Following. \textbf{Left:} DNa02 left minus right against the target's bearing, open loop (mean,
 95\% CI, 20 seeds), for the intact brain, the rewired brain, and the input null. \textbf{Centre:} the turn
 toward a target \SI{10}{\degree} out, against its elevation. \textbf{Right:} closed loop, the robot's
-heading against the target's for a run that kept up, one that lost the target on a right turn, and the
+heading against the target's for a run that kept up, one that fell behind after a reversal, and the
 rewired brain.}
 \label{fig:follow}
 \end{figure}
@@ -427,9 +428,9 @@ paired cue \emph{less} attractive, almost entirely through the GABAergic MBON09 
 \paragraph{Closed loop.} Six runs per brain, the petted target alternating between ball and bar.
 Naive, the robot followed neither (0 of 6 each). After four 3-s pettings with one target in view
 and four presentations of the other, the petted target's value had risen by 3.8--4.2\,Hz and the
-other's by 0.3--0.8\,Hz in all six runs; the robot then walked after the petted target in 4 of 6 runs
-(net \SI{0.64}{m} [0.34, 0.94] in \SI{30}{s}; ball and bar both) and after the other in none. The two
-failures learned but lost the target while following. The rewired brain learned and followed nothing.
+other's by 0.3--0.6\,Hz in all six runs; the robot then walked after the petted target in 5 of 6 runs
+(net \SI{1.03}{m} [0.70, 1.26] in \SI{30}{s}; heading gain 0.76 [0.41, 0.96]; ball and bar both) and
+after the other in none. The failure learned but lost the target while following. The rewired brain learned and followed nothing.
 
 \subsection{Controls}
 
@@ -464,17 +465,17 @@ null's 54\% [52, 56].
 \midrule
 Startle, \SIrange{0.6}{1.5}{m/s}, open loop & 1.00 [0.91, 1.00] & 0.00 & 0.00 & 0.50 [0.35, 0.65] \\
 Startle, \SI{0.2}{m/s}, open loop & 0.00 [0.00, 0.09] & 0.00 & 0.00 & 0.00 \\
-Startle, \SI{1.5}{m/s}, closed loop & 0.95 [0.76, 0.99] & 0.00 [0.00, 0.16] & & \\
+Startle, \SI{1.5}{m/s}, closed loop & 1.00 [0.84, 1.00] & 0.00 [0.00, 0.16] & & \\
 Startle, \SI{0.2}{m/s}, closed loop & 0.00 [0.00, 0.16] & 0.00 [0.00, 0.16] & & \\
 Ipsilateral GF spike share & 0.58 [0.56, 0.59] & -- & -- & 0.54 [0.52, 0.56] \\
 False startle, walking at a wall \SI{0.3}{m/s} & 6/20 & 0/20 & 0/20 & 2/20 \\
-Head optomotor gain, closed loop & 0.28 [0.24, 0.32] & 0.00 & & \\
+Head optomotor gain, closed loop & 0.23 [0.21, 0.27] & 0.00 & & \\
 DNp15 follows rotation (camera view) & yes, rank 1/383 & no & no & \\
 DNa02 follows rotation & whole eye only & no & no & \\
 DNa02 tracks target bearing, open loop & $r = 0.94$, rank 3/383 & $r = 0.00$ & & $r = 0.05$ \\
-Following, runs kept up, closed loop & 5/8 [0.31, 0.86] & 0/8 [0.00, 0.32] & & \\
+Following, runs kept up, closed loop & 4/8 [0.22, 0.78] & 0/8 [0.00, 0.32] & & \\
 Learning index, open loop (Hz) & +3.35 [2.83, 3.82] & 0.00 & & \\
-Walks after petted / other target & 4/6 / 0/6 & 0/6 / 0/6 & & \\
+Walks after petted / other target & 5/6 / 0/6 & 0/6 / 0/6 & & \\
 \bottomrule
 \end{tabular}
 \end{table}

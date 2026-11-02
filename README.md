@@ -18,21 +18,22 @@ What the duck does, in the MuJoCo twin today:
 
 - **It startles.** A ball thrown at its face fires the fly's giant fibre — the escape neuron —
   through the fly's own looming detectors (LPLC2, LC4), and the duck honks, ducks and backs off:
-  19 of 20 throws at 1.5 m/s in the robot's twin. A hand approaching at petting speed never does
+  20 of 20 throws at 1.5 m/s in the robot's twin. A hand approaching at petting speed never does
   (0 of 20) — though that speed threshold is ours, not the fly's (below).
 - **It follows the world turning.** In a striped drum — the classic fly-arena experiment — its
   head turns with the stripes through DNp15/DNHS1, the descending neuron that turns a fly's head,
-  at a closed-loop gain of 0.28 [0.24, 0.32]; the walking body follows the head. That is the
+  at a closed-loop gain of 0.23 [0.21, 0.27]; the walking body follows the head. That is the
   optomotor reflex a fly holds its course with.
 - **It follows a target.** A small bright thing on the floor — where your feet would be — drives the
   fly's small-object detectors (LC10a), and through the anterior optic tubercle the fly's steering
   neuron DNa02 turns the walking duck toward it. Led 90° left and right, the duck kept up for the
-  whole run in 5 of 8 runs (heading gain 1.00, median error 7.8°); in the other three it lost the
-  target on a right turn, its weak side, and stopped.
+  whole run in 4 of 8 runs (heading gain 1.00, median error 7.8°); in two more it trailed just
+  outside the camera's view and kept turning with it, and in two it fell behind after a reversal
+  and lost it for part of the run (mean heading gain over all eight, 0.90).
 - **It learns what it was petted for — with a lot of help.** Two targets, a ball and a bar. At first
   the duck only looks at both. Pet it four times while it sees one of them, and that one's value in
-  the fly's mushroom-body output neurons rises (+3.8 to +4.2 Hz, against +0.3 to +0.8 for the
-  other, in 6 of 6 runs); afterwards it walks after that target (4 of 6 runs) and never after the
+  the fly's mushroom-body output neurons rises (+3.8 to +4.2 Hz, against +0.3 to +0.6 for the
+  other, in 6 of 6 runs); afterwards it walks after that target (5 of 6 runs) and never after the
   other (0 of 6). Which target was petted alternated, so it is the pairing, not the ball. But the
   model's mushroom body cannot do this alone: the cues' Kenyon-cell codes, the plasticity rule and
   more are ours (below).
@@ -157,7 +158,7 @@ frame has no capture stamp, so each is dated from the RTCP sender reports and `m
 pair onto the robot's own monotonic clock — the clock `robot.state` carries — and the network's
 delay drops out of pairing frames with states. Against the twin's `mediad`, over WebRTC: following
 kept up for a whole run (median error 9°), 3 of 3 throws startled, and the head reflex's gain was
-0.24 [0.19, 0.28] (0.28 [0.24, 0.32] on the local sockets); the efference copy's correlation peaks
+0.24 [0.19, 0.28] (0.23 [0.21, 0.27] on the local sockets); the efference copy's correlation peaks
 at the same offset as locally (−0.04 s), a little lower (r 0.65 against 0.86) after H.264.
 
 `bridge.py --dry` sends the duck nothing, `--no-viz` skips the viewer, `--record FILE.rrd` saves
@@ -207,19 +208,19 @@ open loop, 20 seeds; `experiments/closed_loop_stats.py`, the whole robot stack, 
 |---|---|---|---|---|
 | startle, ball 0.6–1.5 m/s (open loop) | **1.00** [0.91, 1.00] | 0.00 | 0.00 | 0.50 [0.35, 0.65] |
 | startle, ball 0.2 m/s (open loop) | 0.00 [0.00, 0.09] | 0.00 | 0.00 | 0.00 |
-| startle, ball 1.5 m/s (closed loop) | **0.95** [0.76, 0.99] | 0.00 [0.00, 0.16] | | |
+| startle, ball 1.5 m/s (closed loop) | **1.00** [0.84, 1.00] | 0.00 [0.00, 0.16] | | |
 | startle, hand 0.2 m/s (closed loop) | 0.00 [0.00, 0.16] | 0.00 | | |
-| giant fibre on the ball's side (share of its spikes) | 0.58 [0.56, 0.59] open · 0.57 [0.45, 0.66] closed | — | — | 0.54 [0.52, 0.56] |
+| giant fibre on the ball's side (share of its spikes) | 0.58 [0.56, 0.59] open · 0.67 [0.58, 0.76] closed | — | — | 0.54 [0.52, 0.56] |
 | false startle walking at a wall, 0.3 m/s | 6/20 | 0/20 | 0/20 | 2/20 |
-| head optomotor gain (closed loop) | **0.28** [0.24, 0.32] | 0.00 | | |
+| head optomotor gain (closed loop) | **0.23** [0.21, 0.27] | 0.00 | | |
 | DNp15 follows rotation (camera view) | **yes**: rank 1 of 383 DN pairs³ | no | no | |
 | DNa02 follows rotation | whole eye yes · camera view no | no | no | |
 | DNa02 turns toward a target, by bearing (open loop) | **r = 0.94**, rank 3 of 383⁴ | r = 0.00 | | r = 0.05 |
-| follow me: runs the duck kept up (closed loop) | **5/8** [0.31, 0.86] | 0/8 [0.00, 0.32] | | |
-| follow me: heading gain · median error, those runs | 1.00 · 7.8° [6.6, 9.3] | — | | |
+| follow me: runs the duck kept up (closed loop) | **4/8** [0.22, 0.78] | 0/8 [0.00, 0.32] | | |
+| follow me: heading gain · median error, those runs | 1.00 · 7.8° [7.4, 8.2] | — | | |
 | learning, open loop: paired cue's value gain over the unpaired (Hz)⁵ | **+3.35** [2.83, 3.82] | 0.00 | | |
 | … unpaired petting · no petting | −0.39 [−0.94, 0.14] · −0.12 [−0.70, 0.45] | 0.00 · 0.00 | | |
-| learning, closed loop: walks after the petted target · the other | **4/6** · 0/6 | 0/6 · 0/6 | | |
+| learning, closed loop: walks after the petted target · the other | **5/6** · 0/6 | 0/6 · 0/6 | | |
 
 ¹ each connection keeps its source neuron and weight, gets a random target; every neuron keeps its
 number of inputs and outputs. ² the intact brain, with the looming input sent to as many *other*

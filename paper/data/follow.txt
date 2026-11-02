@@ -1,25 +1,21 @@
-{'brain': 'intact', 'run': 0, 'error_median': 63.22589135987619, 'in_view': 0.35845896147403683, 'gain': 0.12273744184070061, 'startles': 0}
-{'brain': 'shuffled', 'run': 0, 'error_median': 41.33889441944704, 'in_view': 0.3358395989974937, 'gain': -0.0006302289164411026, 'startles': 0}
-{'brain': 'intact', 'run': 1, 'error_median': 7.691839904029825, 'in_view': 0.9590301003344481, 'gain': 1.0008757827174242, 'startles': 0}
-{'brain': 'shuffled', 'run': 1, 'error_median': 41.77605258197224, 'in_view': 0.33249791144527985, 'gain': -0.01345426721125595, 'startles': 0}
-{'brain': 'intact', 'run': 2, 'error_median': 7.4210491780756085, 'in_view': 0.9506276150627615, 'gain': 0.9916270896317061, 'startles': 0}
-{'brain': 'shuffled', 'run': 2, 'error_median': 41.67108733212958, 'in_view': 0.3316582914572864, 'gain': -0.010225986359567814, 'startles': 0}
-{'brain': 'intact', 'run': 3, 'error_median': 14.815566950747504, 'in_view': 0.5808885163453479, 'gain': 0.3826446142097287, 'startles': 0}
-{'brain': 'shuffled', 'run': 3, 'error_median': 41.89225825819745, 'in_view': 0.3313807531380753, 'gain': -0.014803724888373454, 'startles': 0}
-{'brain': 'intact', 'run': 4, 'error_median': 5.898156912727195, 'in_view': 0.948073701842546, 'gain': 1.0195533032461854, 'startles': 0}
-{'brain': 'shuffled', 'run': 4, 'error_median': 41.45412719425887, 'in_view': 0.3322175732217573, 'gain': -0.008645751859733146, 'startles': 0}
-{'brain': 'intact', 'run': 5, 'error_median': 10.51124733890866, 'in_view': 0.9540133779264214, 'gain': 0.9993688356209269, 'startles': 0}
-{'brain': 'shuffled', 'run': 5, 'error_median': 41.418066969358165, 'in_view': 0.3324958123953099, 'gain': -0.008719896471998424, 'startles': 0}
-{'brain': 'intact', 'run': 6, 'error_median': 95.81756300604877, 'in_view': 0.3288702928870293, 'gain': -0.104489480344242, 'startles': 0}
-{'brain': 'shuffled', 'run': 6, 'error_median': 41.39212258280901, 'in_view': 0.33500837520938026, 'gain': -0.006769583422682396, 'startles': 0}
-{'brain': 'intact', 'run': 7, 'error_median': 7.6556178397579195, 'in_view': 0.9832775919732442, 'gain': 0.9886676041221141, 'startles': 0}
-{'brain': 'shuffled', 'run': 7, 'error_median': 40.4150932458118, 'in_view': 0.34115674769488685, 'gain': 0.008248201206562769, 'startles': 0}
+{'brain': 'intact', 'run': 0, 'error_median': 7.203360316360502, 'in_view': 0.9901785714285715, 'gain': 0.9872061274830963, 'startles': 0}
+{'brain': 'shuffled', 'run': 0, 'error_median': 41.30097436984046, 'in_view': 0.33602150537634407, 'gain': -0.006266414527644932, 'startles': 0}
+{'brain': 'intact', 'run': 1, 'error_median': 14.045282159948833, 'in_view': 0.6412859560067682, 'gain': 0.5638959148707524, 'startles': 0}
+{'brain': 'shuffled', 'run': 1, 'error_median': 41.34589658432762, 'in_view': 0.33500837520938026, 'gain': -0.005791837019750193, 'startles': 0}
+{'brain': 'intact', 'run': 2, 'error_median': 14.338784178089428, 'in_view': 0.6789606035205364, 'gain': 0.6851147582801878, 'startles': 0}
+{'brain': 'shuffled', 'run': 2, 'error_median': 41.89898368468368, 'in_view': 0.3313807531380753, 'gain': -0.01386414278198108, 'startles': 0}
+{'brain': 'intact', 'run': 3, 'error_median': 8.293038737151683, 'in_view': 0.902928870292887, 'gain': 0.9964689877172146, 'startles': 0}
+{'brain': 'shuffled', 'run': 3, 'error_median': 39.40387531628252, 'in_view': 0.3503772003352892, 'gain': 0.02452061167260088, 'startles': 0}
+{'brain': 'intact', 'run': 4, 'error_median': 9.198238822690737, 'in_view': 0.7964824120603015, 'gain': 1.0004767109924417, 'startles': 0}
+{'brain': 'shuffled', 'run': 4, 'error_median': 39.43456575937911, 'in_view': 0.3498322147651007, 'gain': 0.02041992554327732, 'startles': 0}
+{'brain': 'intact', 'run': 5, 'error_median': 7.6199333046828945, 'in_view': 0.9899413243922883, 'gain': 1.0079534023676915, 'startles': 0}
+{'brain': 'shuffled', 'run': 5, 'error_median': 41.29427048770049, 'in_view': 0.3347315436241611, 'gain': -0.004622774822102086, 'startles': 0}
+{'brain': 'intact', 'run': 6, 'error_median': 8.105498611097348, 'in_view': 0.9120603015075377, 'gain': 1.0034483308378237, 'startles': 0}
+{'brain': 'shuffled', 'run': 6, 'error_median': 39.70337981759588, 'in_view': 0.347024308466052, 'gain': 0.019540722986143545, 'startles': 0}
+{'brain': 'intact', 'run': 7, 'error_median': 9.813562717251424, 'in_view': 0.788646288209607, 'gain': 0.9441370849963169, 'startles': 0}
+{'brain': 'shuffled', 'run': 7, 'error_median': 42.146878156163694, 'in_view': 0.327708703374778, 'gain': -0.018212683110657414, 'startles': 0}
 
 === follow me, n = 8 runs per brain, mean [95% bootstrap CI]
-   intact    error_median 26.6 deg [8.2 deg, 50.5 deg]; in_view 76% [56%, 92%]; gain 0.68 [0.35, 0.93]; startles 0
-   shuffled  error_median 41.4 deg [41.1 deg, 41.7 deg]; in_view 33% [33%, 34%]; gain -0.01 [-0.01, -0.00]; startles 0
-
-=== follow me, n = 8 runs per brain, mean [95% bootstrap CI]
-   intact    error_median 26.6 deg [8.2 deg, 50.5 deg]; in_view 76% [56%, 92%]; gain 0.68 [0.35, 0.93]; startles 0; completed 5/8 0.62 [0.31, 0.86]
-             completed runs: error 7.8 deg [6.6, 9.3], gain 1.00
-   shuffled  error_median 41.4 deg [41.1 deg, 41.7 deg]; in_view 33% [33%, 34%]; gain -0.01 [-0.01, -0.00]; startles 0; completed 0/8 0.00 [0.00, 0.32]
+   intact    error_median 9.8 deg [8.2 deg, 11.6 deg]; in_view 84% [76%, 92%]; gain 0.90 [0.78, 1.00]; startles 0; completed 4/8 0.50 [0.22, 0.78]
+             completed runs: error 7.8 deg [7.4, 8.2], gain 1.00
+   shuffled  error_median 40.8 deg [40.1 deg, 41.5 deg]; in_view 34% [33%, 34%]; gain 0.00 [-0.01, 0.01]; startles 0; completed 0/8 0.00 [0.00, 0.32]

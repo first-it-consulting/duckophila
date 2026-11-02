@@ -163,7 +163,7 @@ def fig_follow():
     ax.axhline(0, c='0.85', lw=0.6, zorder=0)
     ax.set(xlabel='turn toward, +-10 deg (Hz)', ylabel='target elevation (deg)', title='by elevation')
     ax = axs[2]
-    for name, col, label in (('intact_1', 'C0', 'intact, kept up'), ('intact_0', 'C3', 'intact, lost on a right turn'),
+    for name, col, label in (('intact_1', 'C0', 'intact, kept up'), ('intact_0', 'C3', 'intact, fell behind'),
                              ('shuffled_1', '0.5', 'rewired')):
         rows = json.loads((data / 'follow_runs' / f'{name}.json').read_text())['rows']
         t = [r['t'] for r in rows]

@@ -54,6 +54,7 @@ def present(which, pet, tag):
 def run(brain, k):
     tag = f'{brain}_{k}'
     log = OUT / f'{tag}.log'
+    subprocess.run([PY, '-I', 'drum.py', '--off'], cwd=ROOT, check=True)   # a drum left standing hides the targets
     br = start(['bridge.py', '--no-viz', '--steer', 'follow', '--learn', '--brain', brain], log)
     wait_for(log, 'wired'); time.sleep(3)
     petted, other = ('ball', 'bar') if k % 2 == 0 else ('bar', 'ball')
