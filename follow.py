@@ -89,9 +89,139 @@ def bearing(grey: np.ndarray, p: Params = Params()) -> tuple[float, float, int, 
     return math.degrees(math.atan((w / 2 - x) / f)), math.degrees(math.atan((h / 2 - y) / f)), area, kind
 
 
+@dataclass
+class MovingParams:
+    lag: int = 3                 # frames between the two compared (0.1 s at 30 fps)
+    threshold: int = 20          # grey levels of change that count as motion
+    min_area: float = 0.002      # of the frame: smaller is flicker (an LED, noise)
+    max_area: float = 0.35       # of the frame: larger is not a small object (a leg right at the lens)
+    ego_area: float = 0.5        # of the frame moving at once: the camera moved, or the exposure changed
+    compensate: bool = True      # subtract the camera's own motion first (a duck turning)
+    margin_px: int = 6           # slack at the edges a shift brings in
+    turning_px: float = 3.0      # camera shift over `lag` above which the parallax test applies
+    parallax: float = 0.7        # a candidate shifting the room's way by this share of the room's shift, or more, is scenery
+    persist: int = 3             # frames a target must be seen running before it counts
+    hold_s: float = 0.3          # a target that pauses is kept this long
+    jump_px: float = 80.0        # farther than this from the last target is a new one
+    travel_px: float = 8.0       # it must have moved this far over the last `travel_s`: a blinking LED does not
+    travel_s: float = 0.5
+
+
+class MovingTarget:
+    """A real-world detector: the nearest small thing that moves. Ours, like `bearing`.
+
+    The sim's target is the only white thing in its world; a room is full of white things — chairs,
+    a rug, a window — and a phone or webcam never saturates. What LC10a answers in a fly is a small
+    *moving* object, so this looks for exactly that, and for nothing about brightness: what changed
+    over the last `lag` frames, opened to remove noise, closed to join a leg's parts; blobs between
+    `min_area` and `max_area` of the frame; the lowest one (the floor is nearer lower down, and a
+    walking person's feet are the bottom of their blob), at the bottom of its box. It must also
+    travel (`travel_px` in `travel_s`): an LED blinking or an edge shimmering changes in place. When most of the
+    frame changes at once, the camera moved: no target (that is what the efference copy is for, on a
+    walking duck). The target must run for `persist` frames, and survives a pause of `hold_s`.
+    Unlike `bearing`, a target standing still disappears — closer to LC10a, and not what the sim's
+    glowing ball does."""
+
+    def __init__(self, p: MovingParams | None = None, hfov_deg: float = 45.0, fps: float = 30.0):
+        self.p, self.hfov, self.fps = p or MovingParams(), hfov_deg, fps
+        self.past: list[np.ndarray] = []
+        self.last: tuple[float, float] | None = None
+        self.run = 0
+        self.missing = 0
+        self.mask: np.ndarray | None = None          # the last motion mask, for display
+        self.track: list[tuple[float, float]] = []
+        self.shift = (0.0, 0.0)                      # the last camera shift taken off, px
+
+    def __call__(self, grey: np.ndarray, shift: tuple[float, float] | None = None):
+        """`shift`: how far (dx, dy, pixels) the camera's own motion moved the image over the last `lag`
+        frames, if known — on a duck, from the gyro and the efference copy. Without it, and with
+        `compensate`, it is estimated from the image (phase correlation): the room's shift."""
+        p = self.p
+        g = cv2.GaussianBlur(grey, (5, 5), 0)
+        self.past.append(g)
+        if len(self.past) <= p.lag:
+            return None
+        old = self.past.pop(0)
+        h, w = g.shape
+        valid = np.ones_like(g)
+        if p.compensate:
+            if shift is None:
+                win = cv2.createHanningWindow((w, h), cv2.CV_32F)
+                (dx, dy), _ = cv2.phaseCorrelate(old.astype(np.float32), g.astype(np.float32), win)
+            else:
+                dx, dy = shift
+            self.shift = (dx, dy)
+            M = np.float32([[1, 0, dx], [0, 1, dy]])
+            raw = old
+            old = cv2.warpAffine(old, M, (w, h), borderMode=cv2.BORDER_REPLICATE)
+            valid = cv2.erode(cv2.warpAffine(valid, M, (w, h)), np.ones((2 * p.margin_px + 1,) * 2, np.uint8))
+        m = ((cv2.absdiff(g, old) > p.threshold) & (valid > 0)).astype(np.uint8)
+        m = cv2.morphologyEx(m, cv2.MORPH_OPEN, np.ones((5, 5), np.uint8))   # thin edge shimmer goes
+        m = cv2.morphologyEx(m, cv2.MORPH_CLOSE, np.ones((15, 15), np.uint8))
+        self.mask = m
+        hit = None
+        if m.mean() < p.ego_area:
+            n, _, st, _ = cv2.connectedComponentsWithStats(m)
+            ok = [k for k in range(1, n) if p.min_area * h * w <= st[k, cv2.CC_STAT_AREA] <= p.max_area * h * w]
+            if p.compensate and abs(self.shift[0]) > p.turning_px:
+                # one border strip, as wide as the shift, is dropped while turning: on the four clips the false
+                # targets sat at the border the view leaves from (found by trying both, not derived)
+                edge = abs(self.shift[0]) + p.margin_px * 2
+                if self.shift[0] < 0:
+                    ok = [k for k in ok if st[k, cv2.CC_STAT_LEFT] > edge]
+                else:
+                    ok = [k for k in ok if st[k, cv2.CC_STAT_LEFT] + st[k, cv2.CC_STAT_WIDTH] < w - edge]
+                ok = [k for k in ok if not self._scenery(raw, g, st[k])]
+            if ok:
+                k = max(ok, key=lambda k: st[k, cv2.CC_STAT_TOP] + st[k, cv2.CC_STAT_HEIGHT])
+                x0, y0, bw, bh, area = st[k]
+                foot = m[y0 + bh - max(1, bh // 4): y0 + bh, x0: x0 + bw]
+                xs = np.flatnonzero(foot.any(0))
+                hit = (x0 + float(xs.mean()) if len(xs) else x0 + bw / 2, float(y0 + bh), int(area))
+        if hit and self.last and math.dist(hit[:2], self.last) > p.jump_px:
+            self.run = 0                              # somewhere else: a new target starts over
+        if hit:
+            if self.run == 0:
+                self.track = []
+            self.last, self.run, self.missing = hit[:2], self.run + 1, 0
+            self.track = (self.track + [hit[:2]])[-max(2, int(p.travel_s * self.fps)):]
+        else:
+            self.missing += 1
+            if self.missing > p.hold_s * self.fps:
+                self.last, self.run, self.track = None, 0, []
+        if self.last is None or self.run < p.persist:
+            return None
+        xy = np.array(self.track)
+        if np.ptp(xy, axis=0).max() < p.travel_px:
+            return None
+        f = (w / 2) / math.tan(math.radians(self.hfov / 2))
+        x, y = self.last
+        return math.degrees(math.atan((w / 2 - x) / f)), math.degrees(math.atan((h / 2 - y) / f)), \
+            hit[2] if hit else 0, 'moving'
+
+
+    def _scenery(self, old: np.ndarray, new: np.ndarray, box) -> bool:
+        """While the camera turns, is this candidate just nearer scenery? Near things slide the room's way,
+        only further (parallax: a duck's camera sits ahead of its turning axis, a hand-held phone moves);
+        a target held in view, or walking its own way, does not. The candidate's own shift, in its box,
+        against the room's."""
+        x0, y0, bw, bh = (int(v) for v in box[:4])
+        pad = 12
+        xa, ya = max(0, x0 - pad), max(0, y0 - pad)
+        xb, yb = min(new.shape[1], x0 + bw + pad), min(new.shape[0], y0 + bh + pad)
+        if xb - xa < 16 or yb - ya < 16:
+            return False
+        a, b = old[ya:yb, xa:xb].astype(np.float32), new[ya:yb, xa:xb].astype(np.float32)
+        win = cv2.createHanningWindow((xb - xa, yb - ya), cv2.CV_32F)
+        (bx, _), _ = cv2.phaseCorrelate(a, b, win)
+        room = self.shift[0]
+        return bx * room > 0 and abs(bx) >= self.p.parallax * abs(room)
+
+
 class FollowEncoder:
-    def __init__(self, params: Params | None = None, cell_type: str = 'LC10a'):
+    def __init__(self, params: Params | None = None, cell_type: str = 'LC10a', detector: str = 'white'):
         self.p = params or Params()
+        self.detect = (lambda g: bearing(g, self.p)) if detector == 'white' else MovingTarget(hfov_deg=self.p.hfov_deg)
         self.rf = receptive_fields(cell_type)
         self.ids = [int(f) for f in self.rf.index]
         self.target: tuple[float, float, int, str] | None = None   # az, el (deg), area (px), kind, last frame
@@ -104,7 +234,7 @@ class FollowEncoder:
 
     def update(self, grey: np.ndarray, *_, **__) -> dict[int, float]:
         """Rates for every LC10a — zeros included, so a target that leaves stops driving."""
-        self.target = bearing(grey, self.p)
+        self.target = self.detect(grey)
         if self.target is None:
             return dict.fromkeys(self.ids, 0.0)
         return self.rates_at(self.target[0], self.target[1])
