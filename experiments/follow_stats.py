@@ -3,6 +3,8 @@
     DUCK_SIM_CAMERAS=a sim/duck-sim
     .venv/bin/python -I experiments/follow_stats.py [n_runs]      # -> results/follow.json
     .venv/bin/python -I experiments/follow_stats.py --summary     # the table again, from the JSON
+    .venv/bin/python -I experiments/follow_stats.py 8 --feet      # a person's feet and the real-world detector
+                                                                  # (follow.MovingTarget) -> results/follow_feet.json
 
 Per run: `bridge.py --steer follow` with the brain given, and `lead.py` swinging the target round
 the duck (8 deg/s; 90 left, back, 90 right, back; 65 s). Scored from the simulator's truth:
@@ -23,16 +25,20 @@ from closed_loop_stats import start, stop, wait_for, PY
 from controls import ci_mean, wilson
 import subprocess
 
-OUT = ROOT / 'results' / 'follow'
+FEET = '--feet' in sys.argv
+OUT = ROOT / 'results' / ('follow_feet' if FEET else 'follow')
+RESULT = ROOT / 'results' / ('follow_feet.json' if FEET else 'follow.json')
+BRIDGE_EXTRA = ['--detector', 'moving'] if FEET else []
+LEAD_EXTRA = ['--which', 'feet'] if FEET else []
 OUT.mkdir(parents=True, exist_ok=True)
 
 
 def run(brain, k):
     tag = f'{brain}_{k}'
     subprocess.run([PY, '-I', 'drum.py', '--off'], cwd=ROOT, check=True)   # a drum left standing hides the target
-    br = start(['bridge.py', '--no-viz', '--steer', 'follow', '--brain', brain], OUT / f'{tag}.log')
+    br = start(['bridge.py', '--no-viz', '--steer', 'follow', '--brain', brain, *BRIDGE_EXTRA], OUT / f'{tag}.log')
     wait_for(OUT / f'{tag}.log', 'wired'); time.sleep(3)
-    subprocess.run([PY, '-I', 'lead.py', '--log', str(OUT / f'{tag}.json')], cwd=ROOT, check=True, capture_output=True)
+    subprocess.run([PY, '-I', 'lead.py', *LEAD_EXTRA, '--log', str(OUT / f'{tag}.json')], cwd=ROOT, check=True, capture_output=True)
     stop(br)
     subprocess.run([PY, '-I', 'lead.py', '--off'], cwd=ROOT, check=True)
     rows = json.loads((OUT / f'{tag}.json').read_text())['rows']
@@ -47,15 +53,16 @@ def run(brain, k):
 
 def main():
     if '--summary' in sys.argv:
-        summarize(json.loads((ROOT / 'results' / 'follow.json').read_text())); return
-    n = int(sys.argv[1]) if len(sys.argv) > 1 else 5
+        summarize(json.loads(RESULT.read_text())); return
+    pos = [a for a in sys.argv[1:] if not a.startswith('--')]
+    n = int(pos[0]) if pos else 5
     out = []
     for k in range(n):
         for brain in ('intact', 'shuffled'):
             r = run(brain, k)
             out.append(r)
             print(r, flush=True)
-    (ROOT / 'results' / 'follow.json').write_text(json.dumps(out, indent=1))
+    RESULT.write_text(json.dumps(out, indent=1))
     summarize(out)
 
 

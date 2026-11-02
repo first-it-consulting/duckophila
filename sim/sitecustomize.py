@@ -11,6 +11,7 @@ The wrapper, on each physics step of a model that has the prop (`make_scene.py`)
       {"op": "prop", "pos": [x, y, z]}   -> {}            world frame, metres
       {"op": "drum", "pos": [x, y, z], "yaw": rad} -> {}  the striped drum's centre and rotation
       {"op": "target", "pos": [x, y, z], "which": "ball"|"bar"} -> {}   a glowing follow target
+      {"op": "feet", "left": [x, y, z], "right": [x, y, z], "yaw": rad} -> {}   a person's legs, facing yaw
       {"op": "where"}                    -> {"tof": {"pos": [...], "xmat": [9 floats]}}
                                             the first duck's ToF site, so a thrower can aim
       {"op": "props"}                    -> {"prop": [x, y, z], "drum": {"pos": [...], "quat": [...]}}
@@ -31,7 +32,7 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
         import socketserver
         import threading
 
-        _state = {'pos': None, 'drum': None, 'target': None, 'bar': None, 'model': None, 'data': None, 'started': False}
+        _state = {'pos': None, 'drum': None, 'target': None, 'bar': None, 'feet': None, 'model': None, 'data': None, 'started': False}
         _real_step = mujoco.mj_step
 
         class _Handler(socketserver.StreamRequestHandler):
@@ -50,6 +51,10 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                         elif req.get('op') == 'target':
                             _state['bar' if req.get('which') == 'bar' else 'target'] = [float(v) for v in req['pos']]
                             ans = {}
+                        elif req.get('op') == 'feet':
+                            yaw = float(req.get('yaw', 0.0)); q = [math.cos(yaw / 2), 0.0, 0.0, math.sin(yaw / 2)]
+                            _state['feet'] = ([float(v) for v in req['left']], [float(v) for v in req['right']], q)
+                            ans = {}
                         elif req.get('op') == 'props':
                             d = _state['data']
                             ans = {'prop': d.mocap_pos[_state['mocap']].tolist()}
@@ -60,6 +65,8 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                                 ans['target'] = d.mocap_pos[_state['target_mocap']].tolist()
                             if _state.get('bar_mocap', -1) >= 0:
                                 ans['bar'] = d.mocap_pos[_state['bar_mocap']].tolist()
+                            if _state.get('legs', (-1, -1))[0] >= 0:
+                                ans['feet'] = [d.mocap_pos[k].tolist() for k in _state['legs']]
                         elif req.get('op') == 'where':
                             m, d = _state['model'], _state['data']
                             sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, 'tof')
@@ -86,6 +93,8 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                 _state['target_mocap'] = int(model.body_mocapid[tid]) if tid >= 0 else -1
                 bid2 = mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, 'duckophila_bar')
                 _state['bar_mocap'] = int(model.body_mocapid[bid2]) if bid2 >= 0 else -1
+                legs = [mujoco.mj_name2id(model, mujoco.mjtObj.mjOBJ_BODY, f'duckophila_leg_{s}') for s in ('left', 'right')]
+                _state['legs'] = tuple(int(model.body_mocapid[b]) if b >= 0 else -1 for b in legs)
                 if _state['mocap'] >= 0:
                     _state['model'], _state['data'] = model, data
                     port = int(os.environ.get('DUCKOPHILA_PROP_PORT', '7899'))
@@ -103,6 +112,10 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                     data.mocap_pos[_state['target_mocap']] = _state['target']
                 if _state['bar'] is not None and _state['bar_mocap'] >= 0:
                     data.mocap_pos[_state['bar_mocap']] = _state['bar']
+                if _state['feet'] is not None and _state['legs'][0] >= 0:
+                    l, r, q = _state['feet']
+                    for k, pos in zip(_state['legs'], (l, r)):
+                        data.mocap_pos[k], data.mocap_quat[k] = pos, q
             return _real_step(model, data, *args, **kw)
 
         mujoco.mj_step = _step

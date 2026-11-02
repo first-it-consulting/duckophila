@@ -7,10 +7,14 @@ spatial period flies' optomotor response likes — also a mocap body, also parke
 The target is what the duck follows (`follow.py`): a small sphere (r = 4 cm) that lights itself
 and so is the brightest thing in the grey sim camera — a stand-in for a detector's output, parked
 too; and a second one, an upright bar (3 x 3 x 10 cm), the other cue the duck can learn about
-(`learning.py`) — told apart from the ball by its shape. `sitecustomize.py` moves them all. Asset directories are made absolute so the copy can
+(`learning.py`) — told apart from the ball by its shape; and a pair of feet (below). `sitecustomize.py` moves them all. Asset directories are made absolute so the copy can
 live here, outside the simulator's tree — the point being that `microduck_rl` stays untouched.
 
-    python make_scene.py <scene.xml in microduck_rl> <out.xml>
+    python make_scene.py <scene.xml in microduck_rl> <out.xml> [floor.png]
+
+With a floor texture (`parquet.py`), the ground's checkerboard is replaced by it, one image per
+FLOOR_M metres — opt-in (`DUCK_SIM_FLOOR=parquet sim/duck-sim`): the drum's numbers were measured on
+the checkerboard, which the camera sees too.
 """
 import sys
 from pathlib import Path
@@ -23,6 +27,8 @@ RADIUS = 0.05
 PARKED = (0.0, 0.0, -5.0)
 
 src, out = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve()
+floor = Path(sys.argv[3]).resolve() if len(sys.argv) > 3 else None
+FLOOR_M = 4.0
 spec = mujoco.MjSpec.from_file(str(src))
 for attr in ('meshdir', 'texturedir'):
     d = getattr(spec, attr)
@@ -48,6 +54,23 @@ target.add_geom(type=mujoco.mjtGeom.mjGEOM_SPHERE, size=[TARGET_R, 0, 0], materi
 bar = spec.worldbody.add_body(name='duckophila_bar', mocap=True, pos=[0.0, 0.0, -5.0])
 bar.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.015, 0.015, 0.05], material='duckophila_glow',
              contype=0, conaffinity=0)
+# Feet: a person's lower legs, for the real-world detector (`follow.MovingTarget`) — dark trouser legs
+# and grey socks, not glowing: in the grey camera they are darker than the floor, brighter than nothing.
+# Each leg is its own mocap body, so `lead.py --which feet` can step them in turn.
+for side in ('left', 'right'):
+    leg = spec.worldbody.add_body(name=f'duckophila_leg_{side}', mocap=True, pos=[0.0, 0.0, -5.0])
+    leg.add_geom(type=mujoco.mjtGeom.mjGEOM_CAPSULE, size=[0.055, 0.36, 0], pos=[0, 0, 0.42],
+                 rgba=[0.08, 0.08, 0.09, 1], contype=0, conaffinity=0)
+    leg.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.12, 0.045, 0.035], pos=[0.06, 0, 0.035],
+                 rgba=[0.45, 0.45, 0.47, 1], contype=0, conaffinity=0)
+if floor:
+    tex = next(t for t in spec.textures if t.name == 'groundplane')
+    tex.builtin = mujoco.mjtBuiltin.mjBUILTIN_NONE
+    tex.file = str(floor)
+    tex.width = tex.height = 0
+    mat = next(m for m in spec.materials if m.name == 'groundplane')
+    mat.texrepeat = [1 / FLOOR_M, 1 / FLOOR_M]
+    mat.reflectance = 0.05
 spec.compile()  # fail here, not in the simulator
 out.write_text(spec.to_xml())
 print(out)

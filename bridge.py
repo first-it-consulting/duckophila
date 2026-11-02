@@ -99,6 +99,7 @@ FRAME_LAG_S = float(os.environ.get('DUCKOPHILA_FRAME_LAG_S', 0.01))
 LINK_FRAME_LAG_S = float(os.environ.get('DUCKOPHILA_LINK_FRAME_LAG_S', 0.04))
 STEER_TAU_S = {'follow': float(os.environ.get('DUCKOPHILA_FOLLOW_TAU_S', 0.4))}   # smoothing of the R - L difference
 STEER_MAX = 1.0          # rad/s
+FOLLOW_MEMORY_S = float(os.environ.get('DUCKOPHILA_FOLLOW_MEMORY_S', 0.8))   # --detector moving: walk on this long
 HEAD_YAW_MAX = 0.9       # rad either side of straight ahead
 # Steering the body means walking while turning, as a fly does: velstand ignores yaw commands under
 # ~0.55 rad/s on the spot, and below ~0.1 m/s it often does not step at all; walking at 0.1 it
@@ -228,6 +229,9 @@ class Body:
         if e is not None:
             now = st['t_ns'] / 1e9 if self.robot_clock and st.get('t_ns') else time.time()
             self._egos = [x for x in self._egos if now - x[0] < 1.0] + [(now, e)]
+            # the camera's heading in the world, on the same clock, for the moving detector's turn
+            a = r_cam[:, int(np.argmin(np.abs(r_cam[2])))]          # its most horizontal axis
+            self._headings = [x for x in getattr(self, '_headings', []) if now - x[0] < 1.0] + [(now, math.atan2(a[1], a[0]))]
 
     def velocity(self) -> np.ndarray:
         """The trunk's own velocity, m/s in the trunk frame, from odometry over the last 0.5 s —
@@ -274,6 +278,11 @@ class Body:
             return None
         return min(egos, key=lambda x: abs(x[0] - unix_time))[1]
 
+    def camera_heading_at(self, when: float) -> float | None:
+        """The camera's heading in the world (rad, + = left) at `when`, on `ego_at`'s clock, or None."""
+        h = getattr(self, '_headings', None)
+        return min(h, key=lambda x: abs(x[0] - when))[1] if h else None
+
     def head_yaw_rate_deg(self) -> float:
         """How fast the head is turning on its own, deg/s, positive left — the camera's efference copy."""
         v = self.state.get('velocities')
@@ -286,12 +295,13 @@ class Body:
 class Camera:
     """`mediad`'s local frames through `MotionEncoder`, on a thread; the latest rates on demand."""
 
-    def __init__(self, where, body: Body, efference: bool = True, follow: bool = False):
+    def __init__(self, where, body: Body, efference: bool = True, follow: bool = False, detector: str = 'white'):
         self.path, self.body, self.efference = where, body, efference
         self.lag = FRAME_LAG_S if isinstance(where, Path) else LINK_FRAME_LAG_S
+        self.follow = follow
         if follow:
             from follow import FollowEncoder
-            self.enc = FollowEncoder()
+            self.enc = FollowEncoder(detector=detector)
         else:
             from motion import MotionEncoder
             self.enc = MotionEncoder()
@@ -335,7 +345,28 @@ class Camera:
             # the flow spans this frame and the last, so the state from between their captures
             ego = None if os.environ.get('DUCKOPHILA_NO_EGO') else self.body.ego_at((t + self._t_prev) / 2 - self.lag)
             self._t_prev = t
-            self.rates = self.enc.update(grey, t, head_yaw_rate_deg=w, ego=ego)
+            gyro_z = ((self.body.state.get('imu') or {}).get('gyro') or [0, 0, 0])[2]
+            cam_yaw = math.degrees(gyro_z) + self.body.head_yaw_rate_deg()
+            # the camera's turn between this frame's capture and the one the moving detector compares it
+            # with, from the state history at those moments: the gyro now is ~2 frames ahead of the image,
+            # a large error on a gait that rocks the duck at ~3 Hz
+            self._ftimes = (getattr(self, '_ftimes', []) + [t])[-8:]
+            cam_turn = None
+            if self.follow and len(self._ftimes) > 3:
+                h1, h0 = self.body.camera_heading_at(t - self.lag), self.body.camera_heading_at(self._ftimes[-4] - self.lag)
+                if h1 is not None and h0 is not None:
+                    cam_turn = math.degrees(math.atan2(math.sin(h1 - h0), math.cos(h1 - h0)))
+            # the moving detector takes the camera's turn from the gyro (an image estimate locks onto a large
+            # target and cancels it) and the gait's bob from the image; DUCKOPHILA_IMAGE_SHIFT=1: both from the image
+            extra = {'camera_turn_deg': None if os.environ.get('DUCKOPHILA_IMAGE_SHIFT') else cam_turn} if self.follow else {}
+            self.rates = self.enc.update(grey, t, head_yaw_rate_deg=w, ego=ego, **extra)
+            if self.follow and os.environ.get('DUCKOPHILA_FOLLOW_LOG'):     # per frame, for debugging the detector
+                d = self.enc.detect
+                with open(os.environ['DUCKOPHILA_FOLLOW_LOG'], 'a') as fh:
+                    fh.write(json.dumps({'t': t, 'target': self.enc.target, 'cam_yaw': cam_yaw, 'cam_turn': cam_turn,
+                                         'shift': list(getattr(d, 'shift', (0, 0))),
+                                         'mask': float(d.mask.mean()) if getattr(d, 'mask', None) is not None else None,
+                                         'run': getattr(d, 'run', None), 'shape': list(grey.shape)}) + '\n')
             self.grey = grey
             n += 1
             if n % 30 == 0:
@@ -473,6 +504,8 @@ def main():
     ap.add_argument('--trace', type=Path, help='save every brain step (spikes, key neurons, depth, camera) to this .npz, for video/make_video.py')
     ap.add_argument('--dry', action='store_true', help='do not send the duck anything')
     ap.add_argument('--link', metavar='WS_URL', help="a duck on the network, over WebRTC: its signalling server, ws://<duck>:8443")
+    ap.add_argument('--detector', choices=('white', 'moving'), default='white',
+                    help="--steer follow's target detector: the sim's glowing target, or follow.MovingTarget, the real-world one")
     ap.add_argument('--learn', action='store_true', help='stage 4: follow only what it was petted for (with --steer follow; pet.py)')
     args = ap.parse_args()
 
@@ -504,7 +537,7 @@ def main():
         robot_at, tof_at, frame_at = STATE / f'{args.duck}.sock', STATE / f'{args.duck}-tof.sock', STATE / f'{args.duck}-frame.sock'
     duck = None if args.dry else Duck(robot_at)
     body = Body(robot_at)
-    camera = (Camera(frame_at, body, efference=args.steer == 'dna02', follow=args.steer == 'follow')
+    camera = (Camera(frame_at, body, efference=args.steer == 'dna02', follow=args.steer == 'follow', detector=args.detector)
               if args.steer else None)
     steer_dn = 'DNa02' if args.steer in ('dna02', 'follow') else 'DNp15'
     pair = {s: [brain.index[f] for f in N.ids(steer_dn, s)] for s in ('left', 'right')}
@@ -551,6 +584,7 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
     tof.send('tof.stream', request=True)
     last_t, last_startle, frames, busy = None, -1e9, 0, 0.0
     diff = 0.0                       # smoothed DNa02 R - L, Hz
+    last_seen = -1e9                 # when the moving detector last had a target
     yaw0, t_yaw0 = None, None
     print('wired: waiting for depth frames' + (' and camera' if camera else ''), flush=True)
     for msg in tof.lines():
@@ -627,6 +661,13 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
                 if duck and head is not None and time.monotonic() >= duck.flinching_until:
                     duck.head(head)
                     seen = camera.enc.target is not None
+                    if args.detector == 'moving':
+                        # a stepping person is seen in bursts; walk-stop-walk at the brain's rate is a
+                        # command velstand never takes its first step on. Keep walking FOLLOW_MEMORY_S
+                        # after the target was last seen (ours; the glowing target is never intermittent)
+                        if seen:
+                            last_seen = now
+                        seen = now - last_seen < FOLLOW_MEMORY_S
                     if learner is not None:
                         seen = seen and learner.approach(kind)
                     duck.turn(vyaw if seen else 0.0, BODY_VX if seen else 0.0)

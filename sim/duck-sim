@@ -22,7 +22,13 @@ case "${1:-up}" in
         case "$base" in */*) src="$base" ;; scene) src="$SCENES/scene.xml" ;; *) src="$SCENES/scene_$base.xml" ;; esac
         mkdir -p "$HERE/.scenes"
         out="$HERE/.scenes/$(basename "$src" .xml)_prop.xml"
-        "$RL/.venv/bin/python" "$HERE/make_scene.py" "$src" "$out" >/dev/null
+        floor=""
+        if [ "${DUCK_SIM_FLOOR:-}" = parquet ]; then      # a wooden floor instead of the checkerboard (parquet.py)
+            floor="$HERE/.scenes/parquet.png"
+            [ -f "$floor" ] || "$RL/.venv/bin/python" "$HERE/parquet.py" "$floor" >/dev/null
+            out="$HERE/.scenes/$(basename "$src" .xml)_prop_parquet.xml"
+        fi
+        "$RL/.venv/bin/python" "$HERE/make_scene.py" "$src" "$out" $floor >/dev/null
         export DUCK_SIM_SCENE="$out"
         ;;
 esac

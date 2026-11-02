@@ -101,8 +101,12 @@ class MovingParams:
     turning_px: float = 3.0      # camera shift over `lag` above which the parallax test applies
     parallax: float = 0.7        # a candidate shifting the room's way by this share of the room's shift, or more, is scenery
     persist: int = 3             # frames a target must be seen running before it counts
-    hold_s: float = 0.3          # a target that pauses is kept this long
-    jump_px: float = 80.0        # farther than this from the last target is a new one
+    hold_s: float = 1.0          # a target that pauses is kept this long: a stepping foot rests between steps
+    jump_px: float = 80.0        # farther than this from the last target is a new one ...
+    jump_widths: float = 1.5     # ... or than this many of its widths: a near pair of feet steps further apart
+    pick: str = 'lowest'         # which blob: 'lowest' (the nearest floor point) or 'largest'
+    min_fill: float = 0.0        # of its box a blob must fill: a shimmering line fills little of it
+    bottom_px: int = -1          # a blob reaching this close to the bottom edge is the duck's own near floor (-1: off)
     travel_px: float = 8.0       # it must have moved this far over the last `travel_s`: a blinking LED does not
     travel_s: float = 0.5
 
@@ -131,8 +135,10 @@ class MovingTarget:
         self.mask: np.ndarray | None = None          # the last motion mask, for display
         self.track: list[tuple[float, float]] = []
         self.shift = (0.0, 0.0)                      # the last camera shift taken off, px
+        self.width = 0.0                             # the current target's width, px
+        self._width = 0.0
 
-    def __call__(self, grey: np.ndarray, shift: tuple[float, float] | None = None):
+    def __call__(self, grey: np.ndarray, shift: tuple[float | None, float | None] | None = None):
         """`shift`: how far (dx, dy, pixels) the camera's own motion moved the image over the last `lag`
         frames, if known — on a duck, from the gyro and the efference copy. Without it, and with
         `compensate`, it is estimated from the image (phase correlation): the room's shift."""
@@ -145,11 +151,12 @@ class MovingTarget:
         h, w = g.shape
         valid = np.ones_like(g)
         if p.compensate:
-            if shift is None:
+            dx, dy = shift if shift is not None else (None, None)
+            if dx is None or dy is None:            # what is not known is estimated from the image
                 win = cv2.createHanningWindow((w, h), cv2.CV_32F)
-                (dx, dy), _ = cv2.phaseCorrelate(old.astype(np.float32), g.astype(np.float32), win)
-            else:
-                dx, dy = shift
+                (ex, ey), _ = cv2.phaseCorrelate(old.astype(np.float32), g.astype(np.float32), win)
+                dx = ex if dx is None else dx
+                dy = ey if dy is None else dy
             self.shift = (dx, dy)
             M = np.float32([[1, 0, dx], [0, 1, dy]])
             raw = old
@@ -162,7 +169,9 @@ class MovingTarget:
         hit = None
         if m.mean() < p.ego_area:
             n, _, st, _ = cv2.connectedComponentsWithStats(m)
-            ok = [k for k in range(1, n) if p.min_area * h * w <= st[k, cv2.CC_STAT_AREA] <= p.max_area * h * w]
+            ok = [k for k in range(1, n) if p.min_area * h * w <= st[k, cv2.CC_STAT_AREA] <= p.max_area * h * w
+                  and st[k, cv2.CC_STAT_AREA] >= p.min_fill * st[k, cv2.CC_STAT_WIDTH] * st[k, cv2.CC_STAT_HEIGHT]
+                  and (p.bottom_px < 0 or st[k, cv2.CC_STAT_TOP] + st[k, cv2.CC_STAT_HEIGHT] < h - p.bottom_px)]
             if p.compensate and abs(self.shift[0]) > p.turning_px:
                 # one border strip, as wide as the shift, is dropped while turning: on the four clips the false
                 # targets sat at the border the view leaves from (found by trying both, not derived)
@@ -173,17 +182,20 @@ class MovingTarget:
                     ok = [k for k in ok if st[k, cv2.CC_STAT_LEFT] + st[k, cv2.CC_STAT_WIDTH] < w - edge]
                 ok = [k for k in ok if not self._scenery(raw, g, st[k])]
             if ok:
-                k = max(ok, key=lambda k: st[k, cv2.CC_STAT_TOP] + st[k, cv2.CC_STAT_HEIGHT])
+                k = max(ok, key=(lambda k: st[k, cv2.CC_STAT_AREA]) if p.pick == 'largest'
+                        else (lambda k: st[k, cv2.CC_STAT_TOP] + st[k, cv2.CC_STAT_HEIGHT]))
                 x0, y0, bw, bh, area = st[k]
                 foot = m[y0 + bh - max(1, bh // 4): y0 + bh, x0: x0 + bw]
                 xs = np.flatnonzero(foot.any(0))
                 hit = (x0 + float(xs.mean()) if len(xs) else x0 + bw / 2, float(y0 + bh), int(area))
-        if hit and self.last and math.dist(hit[:2], self.last) > p.jump_px:
+                self._width = float(bw)
+        if hit and self.last and math.dist(hit[:2], self.last) > max(p.jump_px, p.jump_widths * self.width):
             self.run = 0                              # somewhere else: a new target starts over
         if hit:
             if self.run == 0:
                 self.track = []
             self.last, self.run, self.missing = hit[:2], self.run + 1, 0
+            self.width = self._width
             self.track = (self.track + [hit[:2]])[-max(2, int(p.travel_s * self.fps)):]
         else:
             self.missing += 1
@@ -232,9 +244,25 @@ class FollowEncoder:
         r = self.p.max_rate * np.exp(-d2 / (2 * self.p.sigma_deg ** 2))
         return {f: float(x) if x > 1.0 else 0.0 for f, x in zip(self.ids, r)}
 
-    def update(self, grey: np.ndarray, *_, **__) -> dict[int, float]:
-        """Rates for every LC10a — zeros included, so a target that leaves stops driving."""
-        self.target = self.detect(grey)
+    def update(self, grey: np.ndarray, *_, camera_yaw_rate_deg: float | None = None,
+               camera_turn_deg: float | None = None, **__) -> dict[int, float]:
+        """Rates for every LC10a — zeros included, so a target that leaves stops driving.
+        `camera_yaw_rate_deg` (+ = left; the gyro plus the head's own turn), or better `camera_turn_deg`,
+        the camera's turn between the two frames the detector compares, gives the moving detector the
+        camera's turn instead of an estimate from the image: turning left moves the room right."""
+        if isinstance(self.detect, MovingTarget):
+            shift = None
+            d = self.detect
+            f = (grey.shape[1] / 2) / math.tan(math.radians(d.hfov / 2))
+            if camera_turn_deg is not None:
+                shift = (f * math.tan(math.radians(camera_turn_deg)), None)
+            elif camera_yaw_rate_deg is not None:
+                # the turn from the gyro; the bob (dy) still from the image. A large target dominates an
+                # image estimate of the sideways shift and is 'compensated' away; it moves little vertically.
+                shift = (f * math.tan(math.radians(camera_yaw_rate_deg * d.p.lag / d.fps)), None)
+            self.target = self.detect(grey, shift)
+        else:
+            self.target = self.detect(grey)
         if self.target is None:
             return dict.fromkeys(self.ids, 0.0)
         return self.rates_at(self.target[0], self.target[1])
