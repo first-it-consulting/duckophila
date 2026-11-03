@@ -63,6 +63,75 @@ def schedule(speed_deg, angle_deg, hold_s):
             (turn, -speed_deg), (hold_s, 0), (turn, speed_deg), (hold_s, 0)]
 
 
+ROUTE = [('hold', 3.0), ('straight', 1.0), ('hold', 2.0), ('turn', 60.0, 0.8), ('straight', 0.8), ('hold', 2.0),
+         ('turn', -90.0, 1.0), ('straight', 0.8), ('hold', 3.0)]   # metres, degrees (+ left) over metres
+
+
+def route(start, yaw0, v):
+    """(t, x, y, yaw, moving) samples of the person's centre along ROUTE at `v` m/s, 20 Hz."""
+    x, y, yaw, t, out = start[0], start[1], yaw0, 0.0, []
+    dt = 0.05
+    for seg in ROUTE:
+        if seg[0] == 'hold':
+            for _ in range(int(seg[1] / dt)):
+                out.append((t, x, y, yaw, False)); t += dt
+        else:
+            length = seg[1] if seg[0] == 'straight' else seg[2]
+            turn = 0.0 if seg[0] == 'straight' else math.radians(seg[1])
+            n = max(1, int(length / v / dt))
+            for _ in range(n):
+                yaw += turn / n; x += v * dt * math.cos(yaw); y += v * dt * math.sin(yaw)
+                out.append((t, x, y, yaw, True)); t += dt
+    return out
+
+
+def feet_walking(c, yaw, moving, t):
+    """Legs at centre `c` facing `yaw`: striding while walking, stepping on the spot while waiting."""
+    stride = 0.12 if moving else 0.0
+    ph = 2 * math.pi * STEP_HZ * t
+    f, side = np.array([math.cos(yaw), math.sin(yaw)]), np.array([-math.sin(yaw), math.cos(yaw)])
+    out = []
+    for sgn in (1, -1):
+        s = sgn * math.sin(ph)
+        xy = np.asarray(c) + 0.1 * sgn * side + stride * s * f
+        out.append([float(xy[0]), float(xy[1]), LIFT_M * max(0.0, s)])
+    return out[0], out[1]
+
+
+def walk_away(args, ask, w, psi):
+    """The person starts `--distance` ahead of the duck and walks ROUTE; logged as the circle: the
+    person's bearing from the duck against the duck's heading, and their distance."""
+    p = np.array(w['pos'])
+    start = (p[0] + 0.7 * math.cos(psi), p[1] + 0.7 * math.sin(psi))
+    path = route(start, psi, args.walk_speed)
+    rows, t0 = [], time.monotonic()
+    print(f'walking away: {args.walk_speed} m/s, {path[-1][0]:.0f} s')
+    try:
+        for (ts, x, y, yaw, moving) in path:
+            while time.monotonic() - t0 < ts:
+                time.sleep(0.005)
+            l, r = feet_walking((x, y), yaw, moving, ts)
+            ask({'op': 'feet', 'left': l, 'right': r, 'yaw': yaw})
+            w = ask({'op': 'where'})['tof']; q = np.array(w['pos'])
+            bearing = math.atan2(y - q[1], x - q[0]); duck = heading(w['xmat'])
+            rows.append({'t': round(ts, 3), 'unix': time.time(), 'target_deg': math.degrees(bearing), 'duck_deg': math.degrees(duck),
+                         'error_deg': math.degrees(wrap(bearing - duck)), 'dist_m': float(math.hypot(x - q[0], y - q[1])),
+                         'x': q[0], 'y': q[1], 'px': x, 'py': y})
+    finally:
+        ask({'op': 'feet', 'left': PARKED, 'right': PARKED})
+    for key in ('target_deg', 'duck_deg'):
+        u = np.degrees(np.unwrap(np.radians([r[key] for r in rows])))
+        for r, v in zip(rows, u):
+            r[key] = float(v)
+    d = np.array([r['dist_m'] for r in rows]); e = np.abs([r['error_deg'] for r in rows])
+    walked = float(np.hypot(rows[-1]['x'] - rows[0]['x'], rows[-1]['y'] - rows[0]['y']))
+    print(f'done: distance median {np.median(d):.2f} m (end {d[-1]:.2f}), |error| median {np.median(e):.1f} deg, '
+          f'in view {np.mean(e < 20):.0%}, duck walked {walked:.2f} m (net)')
+    if args.log:
+        with open(args.log, 'w') as fh:
+            json.dump({'args': vars(args), 'route': ROUTE, 'rows': rows}, fh)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--speed', type=float, default=8.0, help='deg/s the target swings round the duck')
@@ -70,6 +139,9 @@ def main():
     ap.add_argument('--hold', type=float, default=4.0, help='s between swings')
     ap.add_argument('--distance', type=float, default=0.45, help='m from the duck')
     ap.add_argument('--which', choices=('ball', 'bar', 'feet'), default='ball', help='which target leads')
+    ap.add_argument('--path', action='store_true', help='with --which feet: the person walks away along a route '
+                    '(straight, left curve, straight, right curve), and the duck has to come after them')
+    ap.add_argument('--walk-speed', type=float, default=0.07, help='m/s the person walks with --path')
     ap.add_argument('--log', help='write the 20 Hz log here (JSON)')
     ap.add_argument('--off', action='store_true')
     ap.add_argument('--port', type=int, default=7899)
@@ -89,6 +161,8 @@ def main():
         args.distance = FEET_DISTANCE_M
     w = ask({'op': 'where'})['tof']
     psi = heading(w['xmat'])
+    if args.path:
+        return walk_away(args, ask, w, psi)
     segs = schedule(args.speed, args.angle, args.hold)
     rows, t0, last = [], time.monotonic(), time.monotonic()
     k, seg_end = 0, segs[0][0]

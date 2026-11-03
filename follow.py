@@ -97,6 +97,7 @@ class MovingParams:
     max_area: float = 0.35       # of the frame: larger is not a small object (a leg right at the lens)
     ego_area: float = 0.5        # of the frame moving at once: the camera moved, or the exposure changed
     compensate: bool = True      # subtract the camera's own motion first (a duck turning)
+    homography: bool = True      # ... as the room's homography from tracked corners, RANSAC (independent movers are outliers)
     margin_px: int = 6           # slack at the edges a shift brings in
     turning_px: float = 3.0      # camera shift over `lag` above which the parallax test applies
     parallax: float = 0.7        # a candidate shifting the room's way by this share of the room's shift, or more, is scenery
@@ -170,7 +171,24 @@ class MovingTarget:
         old = self.past.pop(0)
         h, w = g.shape
         valid = np.ones_like(g)
-        if p.compensate:
+        H = self._room_homography(old, g) if p.compensate and p.homography else None
+        if H is not None:
+            # the camera's own motion as the dominant one: the floor and the room, whatever the gait does to
+            # the camera (pitch, roll, bob, turn); what moves by itself -- feet -- is an outlier to the fit
+            raw = old
+            old = cv2.warpPerspective(old, H, (w, h), borderMode=cv2.BORDER_REPLICATE)
+            valid = cv2.erode(cv2.warpPerspective(valid, H, (w, h)), np.ones((2 * p.margin_px + 1,) * 2, np.uint8))
+            self.shift = (float(H[0, 2]), float(H[1, 2]))
+        elif p.compensate and isinstance(shift, np.ndarray):
+            # a full displacement field (egoflow.EgoWarp): the floor's own flow as the duck walks, and its turn
+            from egoflow import EgoWarp
+            if getattr(self, '_warp', None) is None or self._warp.w != w or self._warp.h != h:
+                self._warp = EgoWarp(w, h, self.hfov)
+            raw = old
+            old, valid = self._warp.warp(old, shift)
+            valid = cv2.erode(valid, np.ones((2 * p.margin_px + 1,) * 2, np.uint8))
+            self.shift = (float(np.median(shift[..., 0])), float(np.median(shift[..., 1])))
+        elif p.compensate:
             dx, dy = shift if shift is not None else (None, None)
             if dx is None or dy is None:            # what is not known is estimated from the image
                 win = cv2.createHanningWindow((w, h), cv2.CV_32F)
@@ -203,6 +221,25 @@ class MovingTarget:
                     ok = [k for k in ok if st[k, cv2.CC_STAT_LEFT] + st[k, cv2.CC_STAT_WIDTH] < w - edge]
                 ok = [k for k in ok if not self._scenery(raw, g, st[k])]
         return m, st, ok, h, w
+
+    @staticmethod
+    def _room_homography(old, new, max_pts: int = 400):
+        """The dominant image motion old -> new as a homography: corners tracked (pyramidal LK) and a
+        RANSAC fit, so what moves by itself does not pull it; None with too few corners or inliers.
+        Offline on the duck walking and turning in an empty room this leaves 0.1-0.3% of the image
+        moving, against 5-7% for a shift and 10% for the predicted field (egoflow) -- the gait rocks
+        the camera faster than the robot's state follows it."""
+        p0 = cv2.goodFeaturesToTrack(old, max_pts, 0.01, 8)
+        if p0 is None or len(p0) < 12:
+            return None
+        p1, st, _ = cv2.calcOpticalFlowPyrLK(old, new, p0, None, winSize=(21, 21), maxLevel=3)
+        ok = st.ravel() == 1
+        if ok.sum() < 12:
+            return None
+        H, inl = cv2.findHomography(p0[ok], p1[ok], cv2.RANSAC, 2.0)
+        if H is None or inl is None or inl.sum() < 0.3 * ok.sum():
+            return None
+        return H
 
     def _track_hit(self, hit, h, w):
         p = self.p
@@ -253,7 +290,11 @@ class PopulationParams:
     disc_deg: float = 2.5        # a moving disc this big, centred on a receptive field, drives it at max_rate (motion is mostly edges)
     tau_s: float = 0.3           # LC10a drive decays with this time constant when the motion stops
     foot_deg: float = 8.0        # of each moving blob only its lowest this many degrees drive (0: all of it)
+    objects: bool = True         # each moving blob drives LC10a as a point target at its foot, whatever its size
+                                 # (LC10a detect small objects, not area); False: by moving area under each field
     suppress_deg_s: float = 20.0 # while the camera turns faster than this, no new drive (saccadic suppression)
+    pitch_deg: float = 13.0      # the camera looks this far down; a fly's eye equator is level, so image
+                                 # elevations map to the fly's as el - pitch (bridge passes the measured one)
 
 
 class PopulationMotion:
@@ -292,6 +333,7 @@ class PopulationMotion:
         az = np.degrees(np.arctan((w / 2 - xs) / f)); el = np.degrees(np.arctan((h / 2 - ys) / f))
         cell_area = (np.degrees(c / f)) ** 2
         AZ, EL = np.meshgrid(az, el)                                     # image az (+ left), el (+ up)
+        EL = EL - self.pp.pitch_deg                                      # ... and el as the fly's: level, not the camera's
         own = np.where(self.rf.side.to_numpy()[:, None] == 'left', AZ.ravel()[None], -AZ.ravel()[None])
         d2 = (self.rf.az.to_numpy()[:, None] - own) ** 2 + (self.rf.el.to_numpy()[:, None] - EL.ravel()[None]) ** 2
         W = np.exp(-d2 / (2 * self.p.sigma_deg ** 2)) * cell_area
@@ -329,12 +371,31 @@ class PopulationMotion:
             self._weights(h, w)
         c, gh, gw, W, AZ, EL = self.grid
         frac = cv2.resize(keep[:gh * c, :gw * c], (gw, gh), interpolation=cv2.INTER_AREA).ravel()
-        now = np.minimum(1.0, W @ frac)
+        if self.pp.objects:
+            # every moving thing as a point target where it meets the floor, at full strength: distant
+            # feet are 2-3 degrees and by area drove LC10a too little to steer from a metre on
+            now = np.zeros(len(self.rf))
+            for j in ok:
+                x0, y0, bw, bh = (int(v) for v in st[j, :4])
+                ys, xs = np.nonzero(keep[y0:y0 + bh, x0:x0 + bw])
+                if len(xs) == 0:
+                    continue
+                az = math.degrees(math.atan((w / 2 - (x0 + xs.mean())) / f))
+                el = math.degrees(math.atan((h / 2 - (y0 + ys.max())) / f)) - self.pp.pitch_deg
+                now = np.maximum(now, self._point(az, el))
+        else:
+            now = np.minimum(1.0, W @ frac)
         self.drive = np.maximum(now, self.drive * k)          # rises with the motion, decays after it
         if frac.sum() == 0:
             return None
         wt = frac / frac.sum()
         return float(wt @ AZ.ravel()), float(wt @ EL.ravel()), int((frac > 0).sum()), 'moving'
+
+    def _point(self, az: float, el: float) -> np.ndarray:
+        """Drive (0-1) of every LC10a for a point target at image az, fly el: as FollowEncoder.rates_at."""
+        own = np.where(self.rf.side.to_numpy() == 'left', az, -az)
+        d2 = (self.rf.az.to_numpy() - own) ** 2 + (self.rf.el.to_numpy() - el) ** 2
+        return np.exp(-d2 / (2 * self.p.sigma_deg ** 2))
 
     def rates(self) -> np.ndarray:
         return self.p.max_rate * self.drive
@@ -360,7 +421,7 @@ class FollowEncoder:
         return {f: float(x) if x > 1.0 else 0.0 for f, x in zip(self.ids, r)}
 
     def update(self, grey: np.ndarray, *_, camera_yaw_rate_deg: float | None = None,
-               camera_turn_deg: float | None = None, **__) -> dict[int, float]:
+               camera_turn_deg: float | None = None, camera_field: np.ndarray | None = None, **__) -> dict[int, float]:
         """Rates for every LC10a — zeros included, so a target that leaves stops driving.
         `camera_yaw_rate_deg` (+ = left; the gyro plus the head's own turn), or better `camera_turn_deg`,
         the camera's turn between the two frames the detector compares, gives the moving detector the
@@ -369,7 +430,9 @@ class FollowEncoder:
             shift = None
             d = self.detect.det if isinstance(self.detect, PopulationMotion) else self.detect
             f = (grey.shape[1] / 2) / math.tan(math.radians(d.hfov / 2))
-            if camera_turn_deg is not None:
+            if camera_field is not None:
+                shift = camera_field                 # the duck's own motion, pixel by pixel (egoflow)
+            elif camera_turn_deg is not None:
                 shift = (f * math.tan(math.radians(camera_turn_deg)), None)
             elif camera_yaw_rate_deg is not None:
                 # the turn from the gyro; the bob (dy) still from the image. A large target dominates an

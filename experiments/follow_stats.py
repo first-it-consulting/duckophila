@@ -35,7 +35,9 @@ if os.environ.get('DUCKOPHILA_STATS_TAG'):
     OUT = OUT.with_name(OUT.name + '_' + os.environ['DUCKOPHILA_STATS_TAG'])
 if '--no-startle' in sys.argv:    # the legs loom on the ToF; to see the following on its own
     RESULT = RESULT.with_name(RESULT.stem + '_nostartle.json')
-LEAD_EXTRA = ['--which', 'feet'] if FEET else []
+LEAD_EXTRA = (['--which', 'feet'] if FEET else []) + (['--path'] if '--away' in sys.argv else [])
+if '--away' in sys.argv:          # the person walks away along a route; the duck has to come after them
+    RESULT = RESULT.with_name(RESULT.stem + '_away.json'); OUT = OUT.with_name(OUT.name + '_away')
 OUT.mkdir(parents=True, exist_ok=True)
 
 
@@ -54,8 +56,11 @@ def run(brain, k):
     startles = (OUT / f'{tag}.log').read_text().count('STARTLE')
     time.sleep(3)   # let the duck settle before the next run
     travel = float(np.abs(np.diff(dk)).sum() / max(1e-9, np.abs(np.diff(tg)).sum()))   # >2: it spun, not followed
+    dist = [r['dist_m'] for r in rows if 'dist_m' in r]
+    away = {'dist_median': float(np.median(dist)), 'dist_end': float(dist[-1]),
+            'walked_m': float(np.hypot(rows[-1]['x'] - rows[0]['x'], rows[-1]['y'] - rows[0]['y']))} if dist else {}
     return {'brain': brain, 'run': k, 'error_median': float(np.median(e)), 'in_view': float(np.mean(e < 20)),
-            'gain': gain, 'startles': startles, 'travel': travel}
+            'gain': gain, 'startles': startles, 'travel': travel, **away}
 
 
 def main():
@@ -87,6 +92,9 @@ def summarize(out):
             print(f'   {brain:9s} {spun} run(s) spun (turned more than twice the target\'s path): their gain is not following')
         zig = [round(r.get('travel', 0), 1) for r in rs]
         print(f'   {brain:9s} turned per degree the target moved: {zig}')
+        if rs and 'dist_median' in rs[0]:
+            for key in ('dist_median', 'dist_end', 'walked_m'):
+                m, lo, hi = ci_mean([r[key] for r in rs]); print(f'   {brain:9s} {key} {m:.2f} m [{lo:.2f}, {hi:.2f}]')
         k = sum(r['in_view'] >= 0.9 for r in rs)
         p, lo, hi = wilson(k, len(rs))
         print(f'   {brain:9s} ' + '; '.join(cells) + f'; startles {sum(r["startles"] for r in rs)}'

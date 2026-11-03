@@ -42,9 +42,9 @@ The model's mushroom body, in contrast, has no input-specific code: any input th
 the same two-thirds of its Kenyon cells, through a runaway that starts in the antennal lobe. With
 cue codes, a dopamine plasticity rule and a valence readout supplied by us, the robot learns to
 approach whichever of two targets it was petted for (5 of 6 runs; the other, 0 of 6). With a
-motion-based encoder for a real room the same pathway turns the robot after a person's feet (median
-heading error \SI{19}{\degree} against \SI{40}{\degree} rewired), though only with a readout, a
-correction and control rules of ours, listed. The brain can
+motion-based encoder for a real room the same pathway turns the robot after a person's feet (heading
+gain 0.67 against 0.02 rewired) and, in 3 of 8 runs, walks after one (0 of 8 rewired), though only with
+a readout, a correction and control rules of ours, listed. The brain can
 also drive the robot from a laptop over WebRTC, with every camera frame dated on the robot's clock. To run the model in closed loop we reimplemented it as a stepped
 simulator that reproduces the reference Brian2 implementation spike for spike and runs faster than real
 time on one CPU core, using an exact closed-form bound that lets neurons unable to fire before their next
@@ -94,7 +94,7 @@ That the giant fibre fires (and more reliably for LPLC2/LC4 input) & The shape o
 The sign and size of the DNp15/DNa02 left--right difference & Gains, smoothing, clamps; the body following the head \\
 Where each T4/T5 looks (FlyWire columns); front and up, from the wiring & Approach-speed gate; efference copies of the robot's own motion \\
 That LC10a $\rightarrow$ AOTU019/025 $\rightarrow$ DNa02 turns toward a small target, only below the equator & Target detector; bearing $\rightarrow$ LC10a rates and their dose; walking while a target is seen \\
-Which DN pairs carry a target's bearing; that two feet steer and whole legs do not & For a person: motion pooled onto LC10a receptive fields, its lowest \SI{8}{\degree}; a four-DN readout and its lean; heading memory, suppression, pursuit gate \\
+Which DN pairs carry a target's bearing; that two feet steer and whole legs do not & For a person: moving things as point targets at their lowest \SI{8}{\degree}; the room's homography; level elevation; a four-DN readout and its lean; distance keeping, heading memory, suppression, search, pursuit gate \\
 Kenyon cells $\rightarrow$ MBONs $\rightarrow$ downstream; which DANs reach which MBON & Learning: cue codes, plasticity rule, valence by compartment, antennal lobe silenced, approach gate \\
 \bottomrule
 \end{tabular}
@@ -249,23 +249,31 @@ The self-lit target is a stand-in: on video from a phone at the robot's height (
 the phone, an empty room, the phone turning in it and onto the walker's feet; not published) no pixel
 reaches the detector's threshold, and a lower threshold locks onto a glint above the equator. For a real
 room the encoder looks for motion, not brightness, and picks no target. \emph{Motion}: each frame against
-the one \SI{0.1}{s} earlier, the camera's own turn between their capture times (from the robot's state
-history, as the frames are dated) and its vertical bob (phase correlation) taken off; flicker, thin edges,
+the one \SI{0.1}{s} earlier, warped onto it by the image's dominant homography (corners tracked, RANSAC:
+the floor and the room, whatever the gait does to the camera, with independently moving feet as outliers;
+where it cannot be fitted, the camera's turn from the robot's state history and a phase-correlated
+vertical shift); flicker, thin edges,
 blobs below 0.2\% or above 35\% of the frame, scenery that slides the way of the camera's turn but further
 (parallax), and, while the camera turns faster than \SI{20}{\degree/s}, everything (as flies damp vision
 during saccades) removed. Of each moving blob only its lowest \SI{8}{\degree} drives: where a walking person
-meets the floor. \emph{Pooling}: the motion image is pooled into \SI{2}{\degree} cells and each LC10a is
-driven by the moving area under its receptive field, Gaussian-weighted as above; a moving disc of
-\SI{2.5}{\degree} at its centre drives it at $r_{\max}$, and the drive decays with \SI{0.3}{s} when the
-motion stops. \emph{Readout}: the yaw rate is the left--right difference of the four descending-neuron
+meets the floor. \emph{Drive}: each moving blob drives the LC10a round the bottom of that part as a point
+target does (above), at full strength whatever its size---LC10a detect small objects, and by moving area
+feet a metre away drove them too little to steer---the strongest blob per neuron counting, and the drive
+decays with \SI{0.3}{s} when the motion stops. Elevations are the fly's, not the camera's: the camera
+looks \SI{13}{\degree} down, a fly's eye equator is level, so image elevation less \SI{13}{\degree}. \emph{Readout}: the yaw rate is the left--right difference of the four descending-neuron
 pairs that followed a target's bearing most steeply open loop (Results; DNa02, DNae002, DNa16, and DNg97
 with its sign inverted), less a lean in proportion to the total LC10a drive, calibrated for each brain on
-synthetic targets dead ahead ($0.0036$ intact, $0$ rewired), smoothed (\SI{0.4}{s}) and scaled; the robot
-turns on the spot; a turn away from the world heading where the target was last seen, beyond
-\SI{10}{\degree}, is suppressed (a heading memory); and a flinch whose looming peaks within
+synthetic targets dead ahead ($0.0013$ intact, $0$ rewired), smoothed (\SI{0.4}{s}) and scaled, half as much
+while walking. \emph{Body}: the robot walks (\SI{0.15}{m/s}) while the nearest ToF return in the columns
+toward the target, the floor excluded, is beyond \SI{0.8}{m}, and stands within \SI{0.65}{m}; a turn away
+from the world heading where the target was last seen, beyond \SI{10}{\degree}, is suppressed (a heading
+memory); a lost target is searched for by turning on the way the brain's own recent turn went, up to
+\SI{60}{\degree} and \SI{5}{s} \cite{neuser2008}; and a flinch whose looming peaks within
 \SI{20}{\degree} of the target being followed is withheld (the giant fibre still fires and is
 counted). The test stimulus is a pair of mocap legs, dark trousers and grey feet, stepping
-\SI{0.6}{m} from the robot along the same \SI{90}{\degree} schedule, on a non-repeating plank floor
+\SI{0.6}{m} from the robot along the same \SI{90}{\degree} schedule, or walking away from it along a
+\SI{3.7}{m} route (straight, a \SI{60}{\degree} left curve, straight, a \SI{90}{\degree} right curve, at
+\SI{0.07}{m/s}, with pauses), on a non-repeating plank floor
 generated for the purpose (the simulator's checkerboard is periodic, which defeats image-shift estimates,
 and its bright lines shimmer into motion as the robot rocks).
 
@@ -434,13 +442,22 @@ proportion to the LC10a drive, and absent in the rewired brain, whose readout ne
 Each further rule answered a measured failure: walking toward the person made the floor flow through the
 lower field and the intact brain followed its own flow round in circles; a turn the DNs kept up after a
 fast turn of the robot's own carried it into a spin; and the legs, \SI{0.6}{m} away, loomed on the depth
-sensor and fired the giant fibre $\sim$8 times a run, each flinch breaking the following. With all of
-them (Methods), over 8 runs the intact brain kept a median heading error of \SI{19}{\degree} [13, 28] and
-the person in view 59\% [47, 69] of the time (heading gain 0.62 [0.41, 0.79]; 7 of 8 runs followed, the
-best at \SI{8.4}{\degree} and 80\%); the rewired brain \SI{40}{\degree}, 35\% and 0.02---the share a
-robot that does not turn keeps in view. The glowing ball, for comparison: \SI{10}{\degree}, 84\%, 0.90.
-On the four phone clips, open loop, the encoder and brain turned toward the walking person 87\% of the
-time they turned, and not at all in the empty room, standing or turning. Integrate-and-fire saccades on
+sensor and fired the giant fibre $\sim$8 times a run, each flinch breaking the following. Walking after
+the person needed more: a shift does not take the gait's rocking off the image (offline, in an empty room,
+5--7\% of it still moved; a field predicted from the robot's state, 10\%; the image's homography, 0.1--0.3\%);
+feet more than $\sim$\SI{0.8}{m} away sat above the camera's centre and so, mapped as the camera, above
+the fly's equator; and by moving area distant feet drove LC10a too little (open loop, two feet
+\SI{1.5}{m} away gave $\pm$\SI{3}{Hz}; as point targets, $-40$ and \SI{+47}{Hz}). With all of it (Methods),
+over 8 runs each: round the robot the intact brain kept a heading gain of 0.67 [0.32, 0.94] (median error
+\SI{32}{\degree} [15, 56], the person in view 51\%), the rewired brain 0.02 (\SI{40}{\degree}, 35\%---the
+share a robot that does not turn keeps in view); the glowing ball, 0.90. Walking away, the intact robot
+walked \SI{1.28}{m} [0.61, 1.98] after the person against \SI{0.41}{m}, at a median distance of \SI{1.78}{m}
+against \SI{2.33}{m}; it kept up in 3 of 8 runs (the best \SI{2.9}{m} walked, \SI{7}{\degree} median error,
+in view 77\%), and the rewired robot in none; in the others it lost the person at a curve. On the four
+phone clips, open loop, the encoder and brain turned toward the walking person 90\% of the time they
+turned and not at all in the empty room standing, but 39\% of the time in the empty room while the phone
+turned through chair legs a hand's breadth away: their parallax is no single homography, and a point
+target counts in full where moving area did not (the area pooling, before the walking, turned there 1\%). Integrate-and-fire saccades on
 the same readout \cite{mongeau2017} also followed but overshot; a single equator for both eyes (HSE's
 input centroid, one cell per eye, puts them $\sim$\SI{10}{\degree} apart on an otherwise identical column
 grid) did not remove the lean.
@@ -529,7 +546,8 @@ DNp15 follows rotation (camera view) & yes, rank 1/383 & no & no & \\
 DNa02 follows rotation & whole eye only & no & no & \\
 DNa02 tracks target bearing, open loop & $r = 0.94$, rank 3/383 & $r = 0.00$ & & $r = 0.05$ \\
 Following, runs kept up, closed loop & 4/8 [0.22, 0.78] & 0/8 [0.00, 0.32] & & \\
-Following feet, median error, closed loop & \SI{19}{\degree} [13, 28] & \SI{40}{\degree} & & \\
+Following feet round the robot, heading gain & 0.67 [0.32, 0.94] & 0.02 & & \\
+Walking after feet: runs kept up, metres walked & 3/8, \SI{1.28}{m} & 0/8, \SI{0.41}{m} & & \\
 Learning index, open loop (Hz) & +3.35 [2.83, 3.82] & 0.00 & & \\
 Walks after petted / other target & 5/6 / 0/6 & 0/6 / 0/6 & & \\
 \bottomrule
@@ -572,9 +590,10 @@ Following a person shows where the boundary moves when the input is real. The pa
 fly's---two feet low in the view steer DNa02 as a target does, the whole legs do not, and nothing
 follows when the wiring is rewired---but steering from it took more of ours than following a glowing
 target did: a readout over four DN pairs instead of one, a correction for a lean that appears in our
-receptive-field map, and rules for a body that moves its own camera (turning on the spot, a heading
-memory, suppression during its own fast turns, no flinch at what it pursues). Several have counterparts
-in flies, population readout of descending neurons, saccadic suppression, a compass in the central complex,
+receptive-field map, the room's homography, and rules for a body that moves its own camera (keeping its distance, a heading
+memory, suppression during its own fast turns, a search the brain's way, no flinch at what it pursues).
+Several have counterparts in flies, population readout of descending neurons, saccadic suppression, a
+compass in the central complex, a memory for a vanished object,
 but here they are rules, not circuits. The lean is likely ours as well: the two eyes' maps differ by
 $\sim$\SI{10}{\degree} in elevation where their column grids do not, which a better placement of each eye's
 equator than one cell's input centroid should settle.
@@ -633,6 +652,7 @@ from an AI coding assistant (Anthropic's Claude), directed and reviewed by the a
 \bibitem{aso2014b} Y.~Aso et al. Mushroom body output neurons encode valence and guide memory-based action selection in \emph{Drosophila}. \emph{eLife} 3, e04580 (2014).
 \bibitem{owald2015} D.~Owald, S.~Waddell. Olfactory learning skews mushroom body output pathways to steer behavioral choice in \emph{Drosophila}. \emph{Curr.\ Opin.\ Neurobiol.} 35, 178--184 (2015).
 \bibitem{mongeau2017} J.-M.~Mongeau and M.~A.~Frye. \emph{Drosophila} spatiotemporally integrates visual signals to control saccades. \emph{Curr. Biol.} 27, 2901--2914 (2017).
+\bibitem{neuser2008} K.~Neuser, T.~Triphan, M.~Mronz, B.~Poeck and R.~Strauss. Analysis of a spatial orientation memory in \emph{Drosophila}. \emph{Nature} 453, 1244--1247 (2008).
 \end{thebibliography}
 
 \end{document}

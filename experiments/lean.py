@@ -7,8 +7,8 @@ target's bearing best (DNa02, DNae002, DNa16, and DNg97 with its sign turned). I
 that difference leans left whenever LC10a is driven at all — for a target dead ahead, in proportion
 to how much — and a lean is a turn, so the bridge takes it off. The same procedure runs on every
 brain the bridge can be given, so that a control is corrected by its own lean, not the intact one's:
-synthetic pairs of moving feet dead ahead (2-8 degrees wide, at -8, -14, -20 degrees), through
-`follow.PopulationMotion`'s pooling, 1 s each, 4 seeds; the lean per Hz of drive is the least-squares
+synthetic pairs of moving feet dead ahead (2-8 degrees apart or wide, at -8, -14, -20 degrees of the fly's
+elevation), encoded as `follow.PopulationMotion` encodes them (point targets, or by area), 1 s each, 4 seeds; the lean per Hz of drive is the least-squares
 slope through zero. Open loop, nothing from the twin.
 """
 import json
@@ -33,10 +33,13 @@ def lean(brain, seeds=4):
     D, V = [], []
     for w in (2, 4, 6, 8):
         for el in (-8, -14, -20):
-            m = np.zeros((gh, gw))
-            for a0, a1 in ((-w - 2, -2), (2, w + 2)):
-                m[(AZ >= a0) & (AZ <= a1) & (EL >= el - 3) & (EL <= el)] = 1
-            r = e.p.max_rate * np.minimum(1, W @ m.ravel())
+            if pm.pp.objects:          # as the encoder drives: each foot a point target (half-separation w)
+                r = e.p.max_rate * np.maximum(pm._point(-w, el), pm._point(w, el))
+            else:                      # by moving area, as the encoder did before
+                m = np.zeros((gh, gw))
+                for a0, a1 in ((-w - 2, -2), (2, w + 2)):
+                    m[(AZ >= a0) & (AZ <= a1) & (EL >= el - 3) & (EL <= el)] = 1
+                r = e.p.max_rate * np.minimum(1, W @ m.ravel())
             rates = {f: float(x) for f, x in zip(e.ids, r) if x > 1}
             v = []
             for s in range(seeds):

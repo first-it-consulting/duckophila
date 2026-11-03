@@ -100,6 +100,7 @@ LINK_FRAME_LAG_S = float(os.environ.get('DUCKOPHILA_LINK_FRAME_LAG_S', 0.04))
 STEER_TAU_S = {'follow': float(os.environ.get('DUCKOPHILA_FOLLOW_TAU_S', 0.4))}   # smoothing of the R - L difference
 STEER_MAX = 1.0          # rad/s
 GOAL_MARGIN_DEG = float(os.environ.get('DUCKOPHILA_GOAL_MARGIN_DEG', 10.0))   # --readout composite: goal heading (0: off)
+COMPOSITE_SCALE_WALK = float(os.environ.get('DUCKOPHILA_COMPOSITE_SCALE_WALK', 0.15))   # while walking after a person
 ADAPT_S = float(os.environ.get('DUCKOPHILA_ADAPT_S', 0.0))   # --readout composite: adaptation (0: off; it rebounds)
 def lean_k(brain_kind: str) -> float:
     """--readout composite: the readout's lean per Hz of LC10a drive for this brain, calibrated on that
@@ -250,6 +251,9 @@ class Body:
             # the camera's heading in the world, on the same clock, for the moving detector's turn
             a = r_cam[:, int(np.argmin(np.abs(r_cam[2])))]          # its most horizontal axis
             self._headings = [x for x in getattr(self, '_headings', []) if now - x[0] < 1.0] + [(now, math.atan2(a[1], a[0]))]
+            # and its whole pose (camera->world rotation, trunk position), for egoflow.field_between
+            self._poses = [x for x in getattr(self, '_poses', []) if now - x[0] < 1.0] + \
+                [(now, r_cam, np.asarray(o['position'][:3] if len(o['position']) > 2 else list(o['position'][:2]) + [0.0], float))]
 
     def velocity(self) -> np.ndarray:
         """The trunk's own velocity, m/s in the trunk frame, from odometry over the last 0.5 s —
@@ -295,6 +299,11 @@ class Body:
         if not egos:
             return None
         return min(egos, key=lambda x: abs(x[0] - unix_time))[1]
+
+    def camera_pose_at(self, when: float):
+        """(camera->world rotation, trunk position) at `when`, on `ego_at`'s clock, or None."""
+        p = getattr(self, '_poses', None)
+        return min(p, key=lambda x: abs(x[0] - when))[1:] if p else None
 
     def camera_heading_at(self, when: float) -> float | None:
         """The camera's heading in the world (rad, + = left) at `when`, on `ego_at`'s clock, or None."""
@@ -377,18 +386,79 @@ class Camera:
             # the moving detector takes the camera's turn from the gyro (an image estimate locks onto a large
             # target and cancels it) and the gait's bob from the image; DUCKOPHILA_IMAGE_SHIFT=1: both from the image
             extra = {'camera_turn_deg': None if os.environ.get('DUCKOPHILA_IMAGE_SHIFT') else cam_turn} if self.follow else {}
+            if self.follow and cam_turn is not None and not os.environ.get('DUCKOPHILA_NO_FLOOR_FLOW'):
+                # the whole field of the duck's own motion over the compared interval: its turn, and the
+                # floor sliding under the camera as it walks (egoflow) -- so it can walk after a person
+                e0 = self.body.ego_at((t + self._ftimes[-4]) / 2 - self.lag)
+                if e0 is not None:
+                    if getattr(self, '_egowarp', None) is None or self._egowarp.w != grey.shape[1]:
+                        from egoflow import EgoWarp
+                        self._egowarp = EgoWarp(grey.shape[1], grey.shape[0])
+                    p0 = self.body.camera_pose_at(self._ftimes[-4] - self.lag)
+                    p1 = self.body.camera_pose_at(t - self.lag)
+                    mode = os.environ.get('DUCKOPHILA_FIELD', 'yaw')   # 'yaw': turn + walk only; 'pose': full poses; 'rate'
+                    if mode == 'pose' and p0 is not None and p1 is not None:
+                        extra['camera_field'] = self._egowarp.field_between(e0, p0[0], p1[0], p1[1] - p0[1])
+                        Rr = p1[0].T @ p0[0]
+                        self._rotdbg = [round(float(x), 4) for x in (Rr[2, 1] - Rr[1, 2], Rr[0, 2] - Rr[2, 0], Rr[1, 0] - Rr[0, 1])]
+                    else:
+                        e_use = e0 if mode == 'rate' else (*e0[:5], None)    # 'yaw': no pitch/roll rate
+                        extra['camera_field'] = self._egowarp.field(e_use, t - self._ftimes[-4], math.radians(cam_turn))
+                    self._fdbg = {'v': [round(float(x), 3) for x in e0[4]], 'wpr': [round(float(x), 3) for x in e0[5]],
+                                  'dt': round(t - self._ftimes[-4], 3), 'turn': round(cam_turn, 2),
+                                  'fmed': [round(float(np.median(np.abs(extra['camera_field'][..., k]))), 2) for k in (0, 1)]}
             self.rates = self.enc.update(grey, t, head_yaw_rate_deg=w, ego=ego, **extra)
+            if self.follow and os.environ.get('DUCKOPHILA_FOLLOW_REC') and len(getattr(self, '_ftimes', [])) > 3:
+                # every frame with the robot state at its and the compared frame's capture, for offline checks
+                import pickle as _pk
+                rec = {'t': t, 't0': self._ftimes[-4], 'grey': grey, 'cam_turn': cam_turn,
+                       'e0': self.body.ego_at((t + self._ftimes[-4]) / 2 - self.lag),
+                       'p0': self.body.camera_pose_at(self._ftimes[-4] - self.lag), 'p1': self.body.camera_pose_at(t - self.lag)}
+                with open(os.environ['DUCKOPHILA_FOLLOW_REC'], 'ab') as fh:
+                    _pk.dump(rec, fh)
+            if self.follow and os.environ.get('DUCKOPHILA_FOLLOW_DUMP') and n % 30 == 0:   # frames + raw motion, for debugging
+                dd = getattr(self.enc.detect, 'det', self.enc.detect)
+                if getattr(dd, 'mask', None) is not None:
+                    import cv2 as _cv2
+                    v = _cv2.cvtColor(grey, _cv2.COLOR_GRAY2BGR); v[dd.mask > 0] = (0, 0, 255)
+                    _cv2.imwrite(os.path.join(os.environ['DUCKOPHILA_FOLLOW_DUMP'], f'{time.time():.2f}.jpg'), _cv2.resize(v, (180, 320)))
             if self.follow and os.environ.get('DUCKOPHILA_FOLLOW_LOG'):     # per frame, for debugging the detector
                 d = self.enc.detect
                 with open(os.environ['DUCKOPHILA_FOLLOW_LOG'], 'a') as fh:
                     fh.write(json.dumps({'t': t, 'target': self.enc.target, 'cam_yaw': cam_yaw, 'cam_turn': cam_turn,
                                          'shift': list(getattr(d, 'shift', (0, 0))),
                                          'mask': float(d.mask.mean()) if getattr(d, 'mask', None) is not None else None,
-                                         'run': getattr(d, 'run', None), 'shape': list(grey.shape)}) + '\n')
+                                         'raw': float(d.det.mask.mean()) if getattr(getattr(d, 'det', None), 'mask', None) is not None else None,
+                                         'xy': list((self.body.state.get('odom') or {}).get('position', [0, 0])[:2]),
+                                         'run': getattr(d, 'run', None), 'shape': list(grey.shape), 'f': getattr(self, '_fdbg', None), 'rot': getattr(self, '_rotdbg', None)}) + '\n')
             self.grey = grey
             n += 1
             if n % 30 == 0:
                 self.fps, n, t0 = 30 / (time.monotonic() - t0), 0, time.monotonic()
+
+
+SEARCH_S = float(os.environ.get('DUCKOPHILA_SEARCH_S', 5.0))           # --detector population: look for a lost target this long
+SEARCH_RATE = float(os.environ.get('DUCKOPHILA_SEARCH_RATE', 0.6))     # rad/s
+SEARCH_MIN = float(os.environ.get('DUCKOPHILA_SEARCH_MIN', 0.05))       # rad/s of the brain's recent turn to search on
+SEARCH_MAX_DEG = float(os.environ.get('DUCKOPHILA_SEARCH_MAX_DEG', 60.0))
+KEEP_FAR_M = float(os.environ.get('DUCKOPHILA_KEEP_FAR_M', 0.8))
+KEEP_NEAR_M = float(os.environ.get('DUCKOPHILA_KEEP_NEAR_M', 0.65))
+KEEP_VX = float(os.environ.get('DUCKOPHILA_KEEP_VX', 0.15))
+
+
+def target_range(f, floor, pursuit, cols_each_side: int = 1):
+    """The nearest ToF return (m) in the columns toward the target followed, the floor left out, or None."""
+    if pursuit is None:
+        return None
+    col = int(round((FOV_DEG / 2 - FOV_DEG / COLS / 2 - pursuit[0]) / (FOV_DEG / COLS)))
+    cols = [c for c in range(col - cols_each_side, col + cols_each_side + 1) if 0 <= c < COLS]
+    if not cols:
+        return None
+    d = np.where(np.isin(f['status'], (5, 9)), np.asarray(f['distance_mm'], float) / 1000.0, np.nan).reshape(ROWS, COLS)
+    if floor is not None:
+        d = np.where(np.asarray(floor, bool).reshape(ROWS, COLS), np.nan, d)
+    v = d[:, cols]
+    return float(np.nanmin(v)) if np.isfinite(v).any() else None
 
 
 class Saccades:
@@ -652,6 +722,8 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
     comp_diff = 0.0                  # --readout composite, smoothed
     lr_base = 0.0                    # --readout composite: the adapted-to lean
     goal = None                      # --readout composite: world heading (rad) where the target was last seen
+    walking, last_range = False, None  # --detector population: keeping its distance
+    brain_turn, search_from = 0.0, None  # --detector population: the brain's recent turn, and where a search began
     yaw0, t_yaw0 = None, None
     print('wired: waiting for depth frames' + (' and camera' if camera else ''), flush=True)
     for msg in tof.lines():
@@ -769,7 +841,8 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
                         vyaw = sacc.step(lr, ms / 1000.0, now, seen)
                     elif args.readout != 'dna02':
                         comp_diff += (1.0 - math.exp(-ms / 1000.0 / STEER_TAU_S['follow'])) * (lr - comp_diff)
-                        vyaw = float(np.clip(STEER_GAIN['follow'] * COMPOSITE_SCALE * comp_diff, -STEER_MAX, STEER_MAX))
+                        scale = COMPOSITE_SCALE_WALK if walking else COMPOSITE_SCALE   # the gait adds delay: less while walking
+                        vyaw = float(np.clip(STEER_GAIN['follow'] * scale * comp_diff, -STEER_MAX, STEER_MAX))
                     if args.readout != 'dna02' and GOAL_MARGIN_DEG > 0:
                         # goal heading (ours, after the central complex's compass): where in the world the
                         # target was last seen. The duck may turn toward it, and past it by GOAL_MARGIN_DEG,
@@ -785,8 +858,36 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
                                     vyaw = 0.0
                     # the real-world follow turns on the spot: walking at a person makes the floor flow through
                     # the lower field, where the feet are, and the intact brain follows its own flow round
-                    vx = (float(os.environ.get('DUCKOPHILA_BODY_VX', 0.0)) if args.detector == 'population' else BODY_VX)
-                    duck.turn(vyaw if seen else 0.0, vx if seen else 0.0)
+                    if args.detector == 'population':
+                        # keep its distance (ours): walk while the person, by the ToF zones toward the target,
+                        # is further than KEEP_FAR_M, stop nearer than KEEP_NEAR_M (velstand will not take a
+                        # first step much below 0.15 m/s, so it walks or stands). With the room's own motion
+                        # taken off as a homography, walking no longer feeds the encoder the floor.
+                        d = target_range(f, floor, pursuit)
+                        if d is not None:
+                            walking = d > KEEP_FAR_M or (walking and d > KEEP_NEAR_M)
+                        vx = float(os.environ['DUCKOPHILA_BODY_VX']) if os.environ.get('DUCKOPHILA_BODY_VX') else (KEEP_VX if walking else 0.0)
+                        last_range = d
+                    else:
+                        vx = BODY_VX
+                    if os.environ.get('DUCKOPHILA_FOLLOW_FORCE'):     # verification only: walk regardless of the brain
+                        fx, fy = (float(v) for v in os.environ['DUCKOPHILA_FOLLOW_FORCE'].split(','))
+                        duck.turn(fy, fx)
+                    elif not seen and args.detector == 'population' and now - last_seen < SEARCH_S \
+                            and abs(brain_turn) > SEARCH_MIN and body.yaw() is not None:
+                        # lost (ours, after the flies of Neuser et al. 2008, which keep heading for an object that
+                        # has vanished): keep turning the way the *brain* was turning when it lost the target, on the
+                        # spot, at most SEARCH_MAX_DEG, until it is in view again. The way is the brain's, not the
+                        # encoder's: a rewired brain, which does not turn toward the target, has none to keep.
+                        if search_from is None:
+                            search_from = body.yaw()
+                        gone = abs(math.degrees(math.atan2(math.sin(body.yaw() - search_from), math.cos(body.yaw() - search_from))))
+                        duck.turn(math.copysign(SEARCH_RATE, brain_turn) if gone < SEARCH_MAX_DEG else 0.0, 0.0)
+                    else:
+                        if seen and vyaw is not None and args.detector == 'population':
+                            brain_turn += (1.0 - math.exp(-ms / 1000.0 / 0.5)) * (vyaw - brain_turn)   # the brain's recent turn
+                            search_from = None
+                        duck.turn(vyaw if seen else 0.0, vx if seen else 0.0)
             elif duck:
                 duck.turn(vyaw, BODY_VX)
 
@@ -810,6 +911,8 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
                 tg = getattr(camera.enc, 'target', None)
                 seen = (f'target {tg[0]:+5.1f} deg' if tg else 'no target') if args.steer == 'follow' \
                     else f'flow {camera.enc.mean_u:+5.1f} deg/s'
+                if args.steer == 'follow' and args.detector == 'population':
+                    seen += f', range {"-" if last_range is None else f"{last_range:.2f} m"}, {"walking" if walking else "standing"}, vyaw {vyaw if vyaw is not None else 0:+.2f}'
                 if learner is not None:
                     seen += ''.join(f', {k} {"naive" if learner.learned(k) is None else f"{learner.learned(k):+.1f} Hz"}'
                                     for k in sorted(learner.seen)) + (' PETTING' if learner.petting(now) else '')
