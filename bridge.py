@@ -99,7 +99,25 @@ FRAME_LAG_S = float(os.environ.get('DUCKOPHILA_FRAME_LAG_S', 0.01))
 LINK_FRAME_LAG_S = float(os.environ.get('DUCKOPHILA_LINK_FRAME_LAG_S', 0.04))
 STEER_TAU_S = {'follow': float(os.environ.get('DUCKOPHILA_FOLLOW_TAU_S', 0.4))}   # smoothing of the R - L difference
 STEER_MAX = 1.0          # rad/s
+GOAL_MARGIN_DEG = float(os.environ.get('DUCKOPHILA_GOAL_MARGIN_DEG', 10.0))   # --readout composite: goal heading (0: off)
+ADAPT_S = float(os.environ.get('DUCKOPHILA_ADAPT_S', 0.0))   # --readout composite: adaptation (0: off; it rebounds)
+def lean_k(brain_kind: str) -> float:
+    """--readout composite: the readout's lean per Hz of LC10a drive for this brain, calibrated on that
+    brain (experiments/lean.py -> results/lean.json), so a control is corrected by its own lean."""
+    if os.environ.get('DUCKOPHILA_LEAN_K'):
+        return float(os.environ['DUCKOPHILA_LEAN_K'])
+    here = Path(__file__).resolve().parent
+    for f in (here / 'results' / 'lean.json', here / 'paper' / 'data' / 'lean.json'):   # yours, or the shipped one
+        if f.exists() and brain_kind in (d := json.loads(f.read_text())):
+            return float(d[brain_kind]['k'])
+    print(f'no lean calibrated for the {brain_kind} brain (experiments/lean.py): none taken off', flush=True)
+    return 0.0
+COMPOSITE_SCALE = float(os.environ.get('DUCKOPHILA_COMPOSITE_SCALE', 0.3))    # the composite's slope is ~5x DNa02's (24 against 4.6 Hz per 10 deg): the same turn per degree
+READOUT = {'dna02': [('DNa02', 1.0)],
+           'composite': [('DNa02', 1.0), ('DNae002', 1.0), ('DNa16', 1.0), ('DNg97', -1.0)]}
 FOLLOW_MEMORY_S = float(os.environ.get('DUCKOPHILA_FOLLOW_MEMORY_S', 0.8))   # --detector moving: walk on this long
+PURSUIT_GATE_DEG = float(os.environ.get('DUCKOPHILA_PURSUIT_GATE_DEG', 20.0))   # no flinch at what is followed...
+PURSUIT_MEMORY_S = float(os.environ.get('DUCKOPHILA_PURSUIT_MEMORY_S', 1.0))   # ...seen this recently
 HEAD_YAW_MAX = 0.9       # rad either side of straight ahead
 # Steering the body means walking while turning, as a fly does: velstand ignores yaw commands under
 # ~0.55 rad/s on the spot, and below ~0.1 m/s it often does not step at all; walking at 0.1 it
@@ -373,6 +391,38 @@ class Camera:
                 self.fps, n, t0 = 30 / (time.monotonic() - t0), 0, time.monotonic()
 
 
+class Saccades:
+    """Follow by saccades (`--saccades`), not by a continuous turn. Ours, after the fly.
+
+    A fly tracks a moving object less by turning smoothly than by body saccades, each one fired when
+    the visual evidence for the object being off to one side has added up (Mongeau & Frye 2017,
+    Curr. Biol.: an integrate-and-fire account of object-tracking saccades in Drosophila). It suits
+    this body: velstand ignores a small turn on the spot, and a stepping person gives DNa02 a weak,
+    noisy left-right difference that a continuous turn passes straight on. So DNa02's left minus
+    right (Hz) is integrated, leaking with `tau_s`; crossing `theta` (Hz s) fires a saccade toward that
+    side, `rate` rad/s for `dur_s` (~20 degrees), and starts the integral over. During a saccade
+    nothing is integrated: the camera's own turn would read as the world moving (flies, too, damp
+    their vision during saccades). Between saccades the duck does not turn."""
+
+    def __init__(self, readout: str = 'dna02'):
+        e = os.environ.get
+        self.theta = float(e('DUCKOPHILA_SACC_THETA', 24.0 if readout == 'composite' else 3.0))
+        self.tau_s = float(e('DUCKOPHILA_SACC_TAU_S', 1.0))
+        self.rate = float(e('DUCKOPHILA_SACC_RATE', 1.0))
+        self.dur_s = float(e('DUCKOPHILA_SACC_S', 0.35))
+        self.acc, self.until, self.dir, self.n = 0.0, -1e9, 0.0, 0
+
+    def step(self, left_minus_right_hz: float, dt: float, now: float, seen: bool) -> float:
+        if now < self.until:
+            return self.dir * self.rate
+        self.acc = self.acc * math.exp(-dt / self.tau_s) + left_minus_right_hz * dt
+        if seen and abs(self.acc) > self.theta:
+            self.dir, self.until, self.acc, self.n = math.copysign(1.0, self.acc), now + self.dur_s, 0.0, self.n + 1
+            print(f'saccade {"left" if self.dir > 0 else "right"} (#{self.n})', flush=True)
+            return self.dir * self.rate
+        return 0.0
+
+
 class Trace:
     """Every brain step, for `video/make_video.py`: wall time, which neurons spiked, the key
     descending neurons' rates, the depth frame, a camera thumbnail, startles and steering."""
@@ -504,10 +554,16 @@ def main():
     ap.add_argument('--trace', type=Path, help='save every brain step (spikes, key neurons, depth, camera) to this .npz, for video/make_video.py')
     ap.add_argument('--dry', action='store_true', help='do not send the duck anything')
     ap.add_argument('--link', metavar='WS_URL', help="a duck on the network, over WebRTC: its signalling server, ws://<duck>:8443")
+    ap.add_argument('--readout', choices=('dna02', 'composite'), default=None,
+                    help='--steer follow: the turn from DNa02, or from the four DN pairs that follow a bearing best (READOUT); '
+                         'default composite with --detector population, else dna02')
+    ap.add_argument('--saccades', action='store_true', help='--steer follow: turn by saccades on integrated DNa02 (class Saccades)')
     ap.add_argument('--detector', choices=('white', 'moving', 'population'), default='white',
                     help="--steer follow's target detector: the sim's glowing target, or follow.MovingTarget, the real-world one")
     ap.add_argument('--learn', action='store_true', help='stage 4: follow only what it was petted for (with --steer follow; pet.py)')
     args = ap.parse_args()
+    if args.readout is None:
+        args.readout = 'composite' if args.detector == 'population' else 'dna02'
 
     print('loading the brain (FlyWire 783)…', flush=True)
     brain = FlyBrain(783, seed=0)
@@ -541,6 +597,12 @@ def main():
               if args.steer else None)
     steer_dn = 'DNa02' if args.steer in ('dna02', 'follow') else 'DNp15'
     pair = {s: [brain.index[f] for f in N.ids(steer_dn, s)] for s in ('left', 'right')}
+    # --readout composite: the turn from the DN pairs whose left-right difference followed a target's
+    # bearing best open loop (results/follow_dn.json, |slope| > 3 Hz per 10 deg), sign included
+    readout = [(sg, [brain.index[f] for f in N.ids(n, 'left')], [brain.index[f] for f in N.ids(n, 'right')])
+               for n, sg in READOUT[args.readout]] if args.steer == 'follow' else []
+    args.readout_ix = readout
+    args.lean_k = lean_k(args.brain) if args.readout != 'dna02' else 0.0
 
     trace = Trace(args.trace, brain) if args.trace else None
     import signal
@@ -585,6 +647,11 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
     last_t, last_startle, frames, busy = None, -1e9, 0, 0.0
     diff = 0.0                       # smoothed DNa02 R - L, Hz
     last_seen = -1e9                 # when the moving detector last had a target
+    pursuit = None                   # (bearing deg, monotonic time) of the target last followed
+    sacc = Saccades(args.readout)
+    comp_diff = 0.0                  # --readout composite, smoothed
+    lr_base = 0.0                    # --readout composite: the adapted-to lean
+    goal = None                      # --readout composite: world heading (rad) where the target was last seen
     yaw0, t_yaw0 = None, None
     print('wired: waiting for depth frames' + (' and camera' if camera else ''), flush=True)
     for msg in tof.lines():
@@ -627,7 +694,22 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
             side = 'left' if gl > gr else 'right' if gr > gl else 'both'
             note = f'STARTLE  giant fiber L{gl} R{gr} ({side}), looming peak zone {zone} (tau^-1 {enc.inv_tau[zone]:.1f}/s)'
             print(f'{t:8.2f}s  {time.strftime("%H:%M:%S")}  {note}', flush=True)
-            if duck and not args.no_startle:
+            # pursuit gate (ours): what the duck is following cannot be what it flees. A person's legs
+            # at 0.6 m loom on the ToF as the duck steps after them, ~8 flinches a run, each one
+            # breaking the following. A flinch whose looming peaks within PURSUIT_GATE_DEG of the
+            # target followed in the last PURSUIT_MEMORY_S is held back; the giant fiber still fires
+            # and is logged, and a ball from anywhere else still startles.
+            zone_az = FOV_DEG / 2 - FOV_DEG / COLS / 2 - (zone % COLS) * FOV_DEG / COLS
+            pursued = (args.detector != 'white' and pursuit is not None
+                       and time.monotonic() - pursuit[1] < PURSUIT_MEMORY_S
+                       and abs(zone_az - pursuit[0]) < PURSUIT_GATE_DEG)
+            if pursued:
+                print(f'{t:8.2f}s  ... held back: the looming is the target being followed '
+                      f'(zone {zone_az:+.0f} deg, target {pursuit[0]:+.0f} deg)', flush=True)
+            elif duck and not args.no_startle:
+                if pursuit is not None and args.detector != 'white':
+                    print(f'{t:8.2f}s  ... flinch: zone {zone_az:+.0f} deg, target {pursuit[0]:+.0f} deg '
+                          f'{time.monotonic() - pursuit[1]:.1f} s ago', flush=True)
                 duck.startle(zone)
 
         # step 2: the optomotor reflex
@@ -667,10 +749,44 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
                         # after the target was last seen (ours; the glowing target is never intermittent)
                         if seen:
                             last_seen = now
+                            pursuit = (camera.enc.target[0], time.monotonic())
                         seen = now - last_seen < FOLLOW_MEMORY_S
                     if learner is not None:
                         seen = seen and learner.approach(kind)
-                    duck.turn(vyaw if seen else 0.0, BODY_VX if seen else 0.0)
+                    lr = sum(sg * (counts[l].sum() - counts[r].sum()) for sg, l, r in args.readout_ix) * 1000.0 / ms
+                    if args.readout != 'dna02':
+                        # the lean (ours, calibrated open loop on synthetic targets dead ahead): the readout
+                        # leans left in proportion to how much LC10a is driven at all (+13 Hz with a person
+                        # ahead; the two eyes' LC10a are not mirror images). Taken off, it cannot rebound.
+                        lr -= args.lean_k * sum(camera.rates.get(f, 0.0) for f in camera.enc.ids)
+                    if args.readout != 'dna02' and ADAPT_S > 0:
+                        # adaptation (ours): the readout leans left whenever LC10a is driven at all
+                        # (+13 Hz with a person dead ahead; the two eyes' LC10a are not mirror images),
+                        # and a constant lean is a constant turn. What stays the same fades with ADAPT_S.
+                        lr_base += (ms / 1000.0 / ADAPT_S) * (lr - lr_base)
+                        lr -= lr_base
+                    if args.saccades:
+                        vyaw = sacc.step(lr, ms / 1000.0, now, seen)
+                    elif args.readout != 'dna02':
+                        comp_diff += (1.0 - math.exp(-ms / 1000.0 / STEER_TAU_S['follow'])) * (lr - comp_diff)
+                        vyaw = float(np.clip(STEER_GAIN['follow'] * COMPOSITE_SCALE * comp_diff, -STEER_MAX, STEER_MAX))
+                    if args.readout != 'dna02' and GOAL_MARGIN_DEG > 0:
+                        # goal heading (ours, after the central complex's compass): where in the world the
+                        # target was last seen. The duck may turn toward it, and past it by GOAL_MARGIN_DEG,
+                        # but not away from it: a turn the brain keeps up after a fast turn of its own (its DNs
+                        # fire on for a moment) otherwise carries it round, a spin, the target long gone.
+                        yaw_now = body.yaw()
+                        if yaw_now is not None:
+                            if camera.enc.target is not None:
+                                goal = yaw_now + math.radians(camera.enc.target[0])
+                            if goal is not None:
+                                rem = math.degrees(math.atan2(math.sin(goal - yaw_now), math.cos(goal - yaw_now)))
+                                if vyaw * rem < 0 and abs(rem) > GOAL_MARGIN_DEG:
+                                    vyaw = 0.0
+                    # the real-world follow turns on the spot: walking at a person makes the floor flow through
+                    # the lower field, where the feet are, and the intact brain follows its own flow round
+                    vx = (float(os.environ.get('DUCKOPHILA_BODY_VX', 0.0)) if args.detector == 'population' else BODY_VX)
+                    duck.turn(vyaw if seen else 0.0, vx if seen else 0.0)
             elif duck:
                 duck.turn(vyaw, BODY_VX)
 

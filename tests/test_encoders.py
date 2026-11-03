@@ -62,3 +62,46 @@ def test_target_kind_by_shape():
     g = np.full((640, 360), 90, np.uint8)
     g[380:460, 170:190] = 255                                              # 20 wide, 80 tall: the bar
     assert bearing(g)[3] == 'bar'
+
+
+def _walking_blob(frames, x0, y0, w=40, h=50, step=3, bg=120, fg=20):
+    """A dark blob walking sideways on a plain floor, `step` pixels a frame (0: standing)."""
+    out = []
+    for k in range(frames):
+        g = np.full((640, 360), bg, np.uint8)
+        x = x0 + k * step
+        g[y0:y0 + h, x:x + w] = fg
+        out.append(g)
+    return out
+
+
+def test_moving_target_ignores_still_and_finds_moving():
+    from follow import MovingTarget
+    still = MovingTarget()
+    assert all(still(g, (0.0, 0.0)) is None for g in _walking_blob(20, 100, 450, step=0))
+    mt = MovingTarget()
+    hits = [mt(g, (0.0, 0.0)) for g in _walking_blob(30, 30, 450)]
+    az = [h[0] for h in hits if h]
+    assert az and all(a > 5 for a in az)                    # left of the centre: + azimuth
+
+
+@needs_annotations
+def test_population_drives_the_side_that_moves():
+    """Motion on the left of the view drives the left eye's LC10a more than the right's, and
+    the drive fades after the motion stops (column map needed)."""
+    from conftest import COLUMNS
+    if not COLUMNS.exists():
+        import pytest; pytest.skip('column map not downloaded')
+    from follow import FollowEncoder
+    for x0, own in ((30, 'left'), (240, 'right')):
+        enc = FollowEncoder(detector='population')
+        for g in _walking_blob(20, x0, 450):
+            enc.update(g, camera_turn_deg=0.0)        # the camera stands still, as the state history would say
+        side = enc.rf.side.to_numpy(); r = enc.detect.rates()
+        other = 'right' if own == 'left' else 'left'
+        assert r[side == own].sum() > r[side == other].sum() > -1
+        peak = r.sum()
+        still = np.full((640, 360), 120, np.uint8)
+        for _ in range(30):
+            enc.update(still, camera_turn_deg=0.0)
+        assert enc.detect.rates().sum() < 0.1 * peak         # 1 s later, mostly gone

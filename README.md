@@ -258,6 +258,46 @@ the turn one 10° left gets (−1.8 against +5.3 Hz). Every
   lost run lost the target turning right. Whether that is the fly or our column-to-angle map, we
   cannot tell from here.
 
+## Following a person, not a glowing ball
+
+The follow target above is a stand-in: in the sim camera it is the only thing at full white. A
+phone never saturates, and a flat is full of white things, so on real footage that detector sees
+nothing. `--detector population` is for a real room, and in the twin it follows a person's feet
+(`lead.py --which feet`, on a non-repeating plank floor, `DUCK_SIM_FLOOR=parquet`):
+
+| feet walking 90° round the duck, 0.6 m away, 8 runs | intact | rewired |
+|---|---|---|
+| median heading error | **19°** [13, 28] | 40° |
+| target in the camera's view | **59%** [47, 69] | 35% |
+| heading gain | **0.62** [0.41, 0.79] | 0.02 |
+
+(The glowing ball, the same way: 10°, 84%, 0.90.) Everything that makes it work is ours, and each
+step was found by measuring, not guessed:
+
+- **No target is picked** (`follow.PopulationMotion`). What moves — the camera's own turn taken
+  off — drives every LC10a by the motion under its receptive field, so two feet drive their own
+  neurons at once. Picking one blob made the bearing hop between the feet.
+- **Only the lowest 8° of anything that moves.** Open loop, two feet turn DNa02 as the ball does;
+  the whole legs with them do not turn it at all — too much of a small-object pathway at once.
+- **The turn is read from four DN pairs**, not DNa02 alone: those whose left-right difference
+  followed a target's bearing best open loop (DNa02, DNae002, DNa16, and DNg97 turned round).
+  DNa02 fires a few spikes a second; its difference drowns in their noise.
+- **The readout leans left** whenever LC10a is driven, in proportion to how much (the two eyes'
+  LC10a are not mirror images in our map); the lean is calibrated per brain, open loop on synthetic
+  targets (`experiments/lean.py`), and taken off. Adapting it away instead rebounds.
+- **It turns on the spot, it remembers where the target was, and it ignores its own fast turns.**
+  Walking at a person makes the floor flow under the feet, and the intact brain followed its own
+  floor round in circles; a turn away from where the target was last seen is not allowed (a
+  heading memory, after the fly's compass); above 20°/s of its own turning the drive only decays
+  (as flies damp their vision during saccades).
+- **What it follows, it does not flee.** At 0.6 m the legs loom on the ToF and the giant fibre
+  fires ~8 times a run; a flinch toward the target being followed is held back (the giant fibre
+  still fires and is logged); a ball from anywhere else still startles.
+
+On four phone clips at duck height (not in the repo) it stays silent in an empty room, also while
+the phone turns, and turns toward a person walking round it 87% of the time it turns
+(`experiments/footage_follow.py`). Not on a real duck yet.
+
 ## What does not work yet
 
 - **The camera sees far less than a fly.** About 45° x 73° straight ahead, against ~140° per fly
@@ -271,7 +311,7 @@ the turn one 10° left gets (−1.8 against +5.3 Hz). Every
   below), tested against the twin's real `mediad`; on hardware the camera's own delay has to be
   measured again (`experiments/ego_lag.py --link`).
 - **A lost target stays lost.** With nothing in view the duck stands; the camera's ±22.5° is all
-  the field it has to find it again in. LC10a's preference for *moving* objects is not modelled.
+  the field it has to find it again in. With the glowing target, LC10a's preference for *moving* objects is not modelled (with `--detector population` only what moves drives it).
 - **The model's mushroom body has no code of its own** (`experiments/mb_check.py`). Any input
   strong enough to reach it fires the *same* ~3,400 of 5,177 Kenyon cells: four odours, taste,
   temperature and humidity overlap 0.98–1.00, and the whole brain runs at ~470,000 spikes/s. A fly

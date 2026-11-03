@@ -27,6 +27,8 @@ from __future__ import annotations
 from functools import lru_cache
 from pathlib import Path
 
+import os
+
 import numpy as np
 import pandas as pd
 
@@ -90,6 +92,15 @@ def orientation() -> dict[str, dict[str, float]]:
         if np.sign(hsn - hss) != up:
             raise ValueError(f'{side} eye: LPLC2 and the HS cells disagree on which way is up')
         out[side] = {'front': float(front), 'up': float(up), 'equator_Y': input_centroid('HSE', side)[1]}
+    if os.environ.get('DUCKOPHILA_EQUATOR') == 'shared':
+        # One equator for both eyes. The column grid is the same in both (same range, same median Y);
+        # HSE's input centroid, one cell per eye, puts the equators 2.2 columns (~10 deg) apart, and
+        # the HSN/HSS midpoint 1.4 apart the other way — single-cell estimates, not two eyes that differ.
+        # With separate equators the right eye's receptive fields sit ~10 deg lower than the left's,
+        # so a target low ahead drives the left eye more and every LC10a readout leans left.
+        eq = float(np.mean([out[s]['equator_Y'] for s in out]))
+        for s in out:
+            out[s]['equator_Y'] = eq
     return out
 
 

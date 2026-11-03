@@ -15,7 +15,7 @@ the duck (8 deg/s; 90 left, back, 90 right, back; 65 s). Scored from the simulat
   * completed — the target stayed in view for at least 90% of the run (a lost target is not found
                 again: with nothing in view the duck stands)
 """
-import json, sys, time
+import json, os, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -29,6 +29,10 @@ FEET = '--feet' in sys.argv
 OUT = ROOT / 'results' / ('follow_feet' if FEET else 'follow')
 RESULT = ROOT / 'results' / ('follow_feet.json' if FEET else 'follow.json')
 BRIDGE_EXTRA = (['--detector', 'population'] if FEET else []) + (['--no-startle'] if '--no-startle' in sys.argv else [])
+BRIDGE_EXTRA += os.environ.get('DUCKOPHILA_STATS_BRIDGE', '').split()   # e.g. '--readout composite'
+if os.environ.get('DUCKOPHILA_STATS_TAG'):
+    RESULT = RESULT.with_name(RESULT.stem + '_' + os.environ['DUCKOPHILA_STATS_TAG'] + '.json')
+    OUT = OUT.with_name(OUT.name + '_' + os.environ['DUCKOPHILA_STATS_TAG'])
 if '--no-startle' in sys.argv:    # the legs loom on the ToF; to see the following on its own
     RESULT = RESULT.with_name(RESULT.stem + '_nostartle.json')
 LEAD_EXTRA = ['--which', 'feet'] if FEET else []
@@ -49,8 +53,9 @@ def run(brain, k):
     gain = float(np.polyfit(tg - tg[0], dk - dk[0], 1)[0])
     startles = (OUT / f'{tag}.log').read_text().count('STARTLE')
     time.sleep(3)   # let the duck settle before the next run
+    travel = float(np.abs(np.diff(dk)).sum() / max(1e-9, np.abs(np.diff(tg)).sum()))   # >2: it spun, not followed
     return {'brain': brain, 'run': k, 'error_median': float(np.median(e)), 'in_view': float(np.mean(e < 20)),
-            'gain': gain, 'startles': startles}
+            'gain': gain, 'startles': startles, 'travel': travel}
 
 
 def main():
@@ -77,6 +82,11 @@ def summarize(out):
         for key, fmt in (('error_median', '{:.1f} deg'), ('in_view', '{:.0%}'), ('gain', '{:.2f}')):
             m, lo, hi = ci_mean([r[key] for r in rs])
             cells.append(f'{key} ' + fmt.format(m) + ' [' + fmt.format(lo) + ', ' + fmt.format(hi) + ']')
+        spun = sum(r.get('travel', 0) > 2 and r['error_median'] > 45 for r in rs)   # zig-zagging close behind is not spinning
+        if spun:
+            print(f'   {brain:9s} {spun} run(s) spun (turned more than twice the target\'s path): their gain is not following')
+        zig = [round(r.get('travel', 0), 1) for r in rs]
+        print(f'   {brain:9s} turned per degree the target moved: {zig}')
         k = sum(r['in_view'] >= 0.9 for r in rs)
         p, lo, hi = wilson(k, len(rs))
         print(f'   {brain:9s} ' + '; '.join(cells) + f'; startles {sum(r["startles"] for r in rs)}'

@@ -253,6 +253,7 @@ class PopulationParams:
     disc_deg: float = 2.5        # a moving disc this big, centred on a receptive field, drives it at max_rate (motion is mostly edges)
     tau_s: float = 0.3           # LC10a drive decays with this time constant when the motion stops
     foot_deg: float = 8.0        # of each moving blob only its lowest this many degrees drive (0: all of it)
+    suppress_deg_s: float = 20.0 # while the camera turns faster than this, no new drive (saccadic suppression)
 
 
 class PopulationMotion:
@@ -308,8 +309,16 @@ class PopulationMotion:
             self.drive *= k
             return None
         m, st, ok, h, w = mo
-        keep = np.zeros_like(m, np.float32)
         f = (w / 2) / math.tan(math.radians(self.p.hfov_deg / 2))
+        turn_deg_s = math.degrees(math.atan(abs(self.det.shift[0]) / f)) * self.fps / self.det.p.lag
+        if turn_deg_s > self.pp.suppress_deg_s:
+            # the duck's own fast turn: what is left of it after the shift is taken off reads as motion
+            # on one side, and a turn toward it feeds itself — the duck spins. Flies damp their vision
+            # during saccades; here the drive only decays until the turn slows.
+            self.drive *= k
+            self.mask = np.zeros_like(m)
+            return None
+        keep = np.zeros_like(m, np.float32)
         foot_px = f * math.tan(math.radians(self.pp.foot_deg)) if self.pp.foot_deg > 0 else h
         for j in ok:                                       # each blob's lowest foot_deg: where it meets the floor
             x0, y0, bw, bh = (int(v) for v in st[j, :4])
