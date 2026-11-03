@@ -457,7 +457,12 @@ in view 77\%), and the rewired robot in none; in the others it lost the person a
 phone clips, open loop, the encoder and brain turned toward the walking person 90\% of the time they
 turned and not at all in the empty room standing, but 39\% of the time in the empty room while the phone
 turned through chair legs a hand's breadth away: their parallax is no single homography, and a point
-target counts in full where moving area did not (the area pooling, before the walking, turned there 1\%). Integrate-and-fire saccades on
+target counts in full where moving area did not (the area pooling, before the walking, turned there 1\%). Tracking each object, so that only one found again
+at its place for 12 frames counts in full, cut that to 7\% on the clip but in the simulator halved the
+gain round the robot and stopped it walking after the person; it is not used. Three clips filmed
+afterwards, on which nothing was tuned: in another room, in daylight, it turned toward the walking
+person 94\% of the time it turned; with the phone held low behind walking feet, close up, 66\%; a
+rolling black ball it hardly registered (large, dark and untextured, only its edges and shadow moved). Integrate-and-fire saccades on
 the same readout \cite{mongeau2017} also followed but overshot; a single equator for both eyes (HSE's
 input centroid, one cell per eye, puts them $\sim$\SI{10}{\degree} apart on an otherwise identical column
 grid) did not remove the lean.

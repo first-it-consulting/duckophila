@@ -307,7 +307,15 @@ On four phone clips at duck height (not in the repo) it is silent in an empty ro
 a person walking round it 90% of the time it turns (`experiments/footage_follow.py`); but in the
 empty room *while the phone turns* through a forest of chair legs it now turns 39% of the time —
 the parallax of near clutter is not one homography, and a point target counts in full where the
-area pooling it replaced did not. Not on a real duck yet.
+area pooling it replaced did not. Tracking each object, so that only one found again at its place for
+several frames counts in full (`PopulationParams.persist_frames`), cuts that to 7% on the clip, but
+in the twin it halved the gain round the duck and stopped it walking after anyone: it is off.
+
+Three clips filmed afterwards, which nothing was tuned on: in another room, in daylight, it turned
+toward a person walking round the phone 94% of the time it turned; held low behind someone's feet
+as they walk (a walking duck's view, close up), 66% — barely better than chance; and a black ball
+rolling across the floor it hardly sees, only the ball's edges and shadow (it is large, dark and
+untextured). Not on a real duck yet.
 
 ## What does not work yet
 

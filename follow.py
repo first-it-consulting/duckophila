@@ -172,6 +172,7 @@ class MovingTarget:
         h, w = g.shape
         valid = np.ones_like(g)
         H = self._room_homography(old, g) if p.compensate and p.homography else None
+        self.H = H
         if H is not None:
             # the camera's own motion as the dominant one: the floor and the room, whatever the gait does to
             # the camera (pitch, roll, bob, turn); what moves by itself -- feet -- is an outlier to the fit
@@ -291,6 +292,12 @@ class PopulationParams:
     tau_s: float = 0.3           # LC10a drive decays with this time constant when the motion stops
     foot_deg: float = 8.0        # of each moving blob only its lowest this many degrees drive (0: all of it)
     objects: bool = True         # each moving blob drives LC10a as a point target at its foot, whatever its size
+    persist_frames: int = 0      # > 0: in full only once found again at its place this many frames running, so
+                                 # near clutter's flickering leftovers stay weak. Off: on the phone clip of a turn
+                                 # through chair legs 12 cut false turns 42% -> 7%, but in the twin it halved the
+                                 # circle's gain and stopped the duck walking after anyone (tracks break as it walks)
+    track_px: float = 40.0       # a blob this near where a track is expected (the room's motion applied) continues it
+    track_hold: int = 6          # frames a track survives unseen (a foot resting between steps)
                                  # (LC10a detect small objects, not area); False: by moving area under each field
     suppress_deg_s: float = 20.0 # while the camera turns faster than this, no new drive (saccadic suppression)
     pitch_deg: float = 13.0      # the camera looks this far down; a fly's eye equator is level, so image
@@ -323,6 +330,7 @@ class PopulationMotion:
         self.drive = np.zeros(len(rf))
         self.mask = None
         self.shift = (0.0, 0.0)
+        self.tracks: list[dict] = []          # objects followed: x, y (px), run (frames found), miss
 
     def _weights(self, h, w):
         """Per LC10a, the weight of each cell (deg^2), from its receptive field's centre on its own eye."""
@@ -375,14 +383,16 @@ class PopulationMotion:
             # every moving thing as a point target where it meets the floor, at full strength: distant
             # feet are 2-3 degrees and by area drove LC10a too little to steer from a metre on
             now = np.zeros(len(self.rf))
+            pts = []
             for j in ok:
                 x0, y0, bw, bh = (int(v) for v in st[j, :4])
                 ys, xs = np.nonzero(keep[y0:y0 + bh, x0:x0 + bw])
-                if len(xs) == 0:
-                    continue
-                az = math.degrees(math.atan((w / 2 - (x0 + xs.mean())) / f))
-                el = math.degrees(math.atan((h / 2 - (y0 + ys.max())) / f)) - self.pp.pitch_deg
-                now = np.maximum(now, self._point(az, el))
+                if len(xs):
+                    pts.append((x0 + float(xs.mean()), y0 + float(ys.max())))
+            for (x, y), strength in self._track(pts):
+                az = math.degrees(math.atan((w / 2 - x) / f))
+                el = math.degrees(math.atan((h / 2 - y) / f)) - self.pp.pitch_deg
+                now = np.maximum(now, strength * self._point(az, el))
         else:
             now = np.minimum(1.0, W @ frac)
         self.drive = np.maximum(now, self.drive * k)          # rises with the motion, decays after it
@@ -390,6 +400,35 @@ class PopulationMotion:
             return None
         wt = frac / frac.sum()
         return float(wt @ AZ.ravel()), float(wt @ EL.ravel()), int((frac > 0).sum()), 'moving'
+
+    def _track(self, pts):
+        """Continue tracks with this frame's objects; -> [(point, strength 0-1)] for the objects seen now.
+        A track's expected place is its last one moved by the room's motion this frame (the homography,
+        or the shift); its strength grows with the frames it has run, to 1 at `persist_frames`."""
+        pp = self.pp
+        if pp.persist_frames <= 0:
+            return [(q, 1.0) for q in pts]
+        H = getattr(self.det, 'H', None)
+        for t in self.tracks:                                   # where each track should be now
+            if H is not None:
+                v = H @ np.array([t['x'], t['y'], 1.0]); t['x'], t['y'] = v[0] / v[2], v[1] / v[2]
+            else:
+                t['x'] += self.det.shift[0]; t['y'] += self.det.shift[1]
+        out, used = [], set()
+        for q in pts:
+            best = min(((math.dist(q, (t['x'], t['y'])), i) for i, t in enumerate(self.tracks) if i not in used),
+                       default=(None, None))
+            if best[0] is not None and best[0] < pp.track_px:
+                t = self.tracks[best[1]]; used.add(best[1])
+                t.update(x=q[0], y=q[1], run=t['run'] + 1, miss=0)
+            else:
+                t = {'x': q[0], 'y': q[1], 'run': 1, 'miss': 0}; self.tracks.append(t); used.add(len(self.tracks) - 1)
+            out.append((q, min(1.0, t['run'] / pp.persist_frames)))
+        for i, t in enumerate(self.tracks):
+            if i not in used:
+                t['miss'] += 1
+        self.tracks = [t for t in self.tracks if t['miss'] <= pp.track_hold]
+        return out
 
     def _point(self, az: float, el: float) -> np.ndarray:
         """Drive (0-1) of every LC10a for a point target at image az, fly el: as FollowEncoder.rates_at."""
