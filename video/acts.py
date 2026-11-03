@@ -39,6 +39,8 @@ def main():
     d.mkdir(exist_ok=True)
     run('lead.py', '--off'); run('drum.py', '--off')
     flags = ['--steer', 'follow', '--no-viz', '--trace', str(d / f'{act}_trace.npz')] + (['--learn'] if act == 'learn' else [])
+    if act == 'feet':                     # needs the twin up with DUCK_SIM_FLOOR=parquet
+        flags += ['--detector', 'population']
     log = d / f'{act}.log'
     br = start(['bridge.py', *flags], log)
     while 'wired' not in log.read_text():
@@ -51,6 +53,8 @@ def main():
     lead = ['--speed', '10', '--angle', '45', '--hold', '1.5']
     if act == 'follow':
         run('lead.py', *lead)
+    elif act == 'feet':
+        run('lead.py', '--which', 'feet', '--path')
     else:
         mark('1. naive: the ball leads - the duck only looks'); run('lead.py', '--which', 'ball', *lead)
         mark('1. naive: the bar leads - the duck only looks'); run('lead.py', '--which', 'bar', *lead)

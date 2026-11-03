@@ -60,11 +60,15 @@ class Sim:
         mid = lambda n: self.m.body_mocapid[mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_BODY, n)]
         self.prop, self.drum = mid('duckophila_prop'), mid('duckophila_drum')
         self.target, self.bar = mid('duckophila_target'), mid('duckophila_bar')
+        legs = [mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_BODY, f'duckophila_leg_{x}') for x in ('left', 'right')]
+        self.legs = [self.m.body_mocapid[b] for b in legs] if min(legs) >= 0 else []
         # the drum, see-through in the video only: from outside it is a wall, and the duck is inside
         drum_body = mujoco.mj_name2id(self.m, mujoco.mjtObj.mjOBJ_BODY, 'duckophila_drum')
         self.m.geom_rgba[self.m.geom_bodyid == drum_body, 3] = 0.45
         self.cam = mujoco.MjvCamera()
-        if overhead:   # looking down into the arena
+        if overhead == 'wide':   # the duck and the person walking off, both in the picture
+            self.cam.distance, self.cam.elevation, self.cam.azimuth = 2.8, -35.0, 150.0
+        elif overhead:   # looking down into the arena
             self.cam.distance, self.cam.elevation, self.cam.azimuth = 1.5, -52.0, 150.0
         else:
             self.cam.distance, self.cam.elevation, self.cam.azimuth = 1.1, -20.0, 150.0
@@ -79,6 +83,9 @@ class Sim:
         d.mocap_pos[self.drum], d.mocap_quat[self.drum] = s['drum_pos'][i], s['drum_quat'][i]
         if 'target' in s:
             d.mocap_pos[self.target], d.mocap_pos[self.bar] = s['target'][i], s['bar'][i]
+        if 'feet' in s and self.legs:
+            for k, mi in enumerate(self.legs):
+                d.mocap_pos[mi], d.mocap_quat[mi] = s['feet'][i][k], s['feet_quat'][i]
         mujoco.mj_forward(self.m, d)
         target = np.array(s['trunk'][i]) + [0, 0, 0.05]
         self.look = target if self.look is None else 0.92 * self.look + 0.08 * target   # a steady follow
@@ -263,7 +270,8 @@ def main():
     acts = [('startle', "Act 1 - a ball thrown at the face: the fly's looming detectors fire its escape neuron", False, 'reflex', 1.0),
             ('arena', 'Act 2 - a striped drum turns: the head follows it (DNp15), the walking body follows the head', True, 'reflex', 1.0),
             ('follow', "Act 3 - a small target on the floor: the fly's object detectors (LC10a) steer it through DNa02", True, 'follow', 1.0),
-            ('learn', 'Act 4 - petted while it sees the ball, it follows the ball, not the bar: learning, mostly ours (see paper)', True, 'follow', 3.0)]
+            ('learn', 'Act 4 - petted while it sees the ball, it follows the ball, not the bar: learning, mostly ours (see paper)', True, 'follow', 3.0),
+            ('feet', 'Act 5 - a person walks off: LC10a see the feet, the duck walks after them (works in about a third of runs; see paper)', 'wide', 'follow', 1.0)]
     import json
     for k, (name, cap, overhead, rows, speed) in enumerate(acts, 1):
         if (d / f'{name}_sim.npz').exists() and (d / f'{name}_trace.npz').exists():
@@ -271,7 +279,8 @@ def main():
             ph = d / f'{name}_phases.json'
             phases = json.loads(ph.read_text()) if ph.exists() else None
             print(f'rendering {name}', flush=True)
-            render(d / f'{name}_sim.npz', d / f'{name}_trace.npz', cap, out, scene, overhead, rows, speed, phases,
+            sc = scene.with_name('scene_backlash_prop_parquet.xml') if name == 'feet' else scene   # the plank floor
+            render(d / f'{name}_sim.npz', d / f'{name}_trace.npz', cap, out, sc, overhead, rows, speed, phases,
                    skip=2.5 if name == 'startle' else 0.0)
             parts.append(out)
     # the title at the end, with where to find it

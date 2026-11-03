@@ -13,7 +13,7 @@ out = sys.argv[1]
 body = socket.create_connection(('127.0.0.1', 7801)).makefile('rw')
 body.write(json.dumps({'op': 'hello', 'protocol': 1, 'joints': 15}) + '\n'); body.flush(); body.readline()
 props = socket.create_connection(('127.0.0.1', 7899)).makefile('rw')
-rows = {'t': [], 'joints': [], 'trunk': [], 'quat': [], 'prop': [], 'drum_pos': [], 'drum_quat': [], 'target': [], 'bar': []}
+rows = {'t': [], 'joints': [], 'trunk': [], 'quat': [], 'prop': [], 'drum_pos': [], 'drum_quat': [], 'target': [], 'bar': [], 'feet': [], 'feet_quat': []}
 stop = False
 def done(*_):
     global stop; stop = True
@@ -25,6 +25,7 @@ while not stop:
     rows['t'].append(t0); rows['joints'].append(r['positions']); rows['trunk'].append(r['trunk'])
     rows['quat'].append(r['imu']['quat']); rows['prop'].append(p['prop'])
     rows['target'].append(p.get('target', [0, 0, -5])); rows['bar'].append(p.get('bar', [0, 0, -5]))
+    rows['feet'].append(p.get('feet', [[0, 0, -5], [0, 0, -5]])); rows['feet_quat'].append(p.get('feet_quat', [1, 0, 0, 0]))
     rows['drum_pos'].append(p.get('drum', {}).get('pos', [0, 0, -5])); rows['drum_quat'].append(p.get('drum', {}).get('quat', [1, 0, 0, 0]))
     time.sleep(max(0.0, 1 / 30 - (time.time() - t0)))
 np.savez_compressed(out, **{k: np.array(v) for k, v in rows.items()})

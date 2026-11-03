@@ -67,6 +67,7 @@ if os.environ.get('DUCKOPHILA_PROP') == '1':
                                 ans['bar'] = d.mocap_pos[_state['bar_mocap']].tolist()
                             if _state.get('legs', (-1, -1))[0] >= 0:
                                 ans['feet'] = [d.mocap_pos[k].tolist() for k in _state['legs']]
+                                ans['feet_quat'] = d.mocap_quat[_state['legs'][0]].tolist()
                         elif req.get('op') == 'where':
                             m, d = _state['model'], _state['data']
                             sid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_SITE, 'tof')
