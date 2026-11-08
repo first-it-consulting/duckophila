@@ -34,6 +34,7 @@ CLASS_BGR = {'optic': (200, 110, 70), 'central': (225, 225, 225), 'sensory': (12
              'visual_projection': (250, 180, 80), 'descending': (60, 90, 255), 'ascending': (60, 200, 240),
              'motor': (200, 60, 255), 'visual_centrifugal': (255, 140, 120)}
 INK, DIM, RED = (235, 235, 235), (140, 140, 140), (60, 60, 255)
+AMBER = (40, 170, 255)   # BGR
 FONT = cv2.FONT_HERSHEY_DUPLEX
 
 
@@ -206,7 +207,7 @@ def render(sim_npz: Path, trace_npz: Path, caption: str, out: Path, scene: Path,
     n = int((t1 - t0) * FPS / speed)
     tmp = out.with_suffix('.raw.mp4')
     vw = cv2.VideoWriter(str(tmp), cv2.VideoWriter_fourcc(*'mp4v'), FPS, (W, H))
-    flash_until, last_j = -1.0, -1
+    flash_until, last_j, held = -1.0, -1, False
     for f in range(n):
         T = t0 + f * speed / FPS
         i = min(int(np.searchsorted(s['t'], T)), len(s['t']) - 1)
@@ -219,12 +220,16 @@ def render(sim_npz: Path, trace_npz: Path, caption: str, out: Path, scene: Path,
         for k in range(last_j + 1, j + 1):
             if str(tr['note'][k]).startswith('STARTLE'):
                 flash_until = T + 1.2
+                held = 'HELD BACK' in str(tr['note'][k])
         last_j = j
         brain.draw(canvas, spikes.astype(int))
         if T < flash_until:
+            # a flinch the pursuit gate held back (bridge.py) is not a startle: say so, in amber
+            col = AMBER if held else RED
             for g in brain.idx['DNp01']:
-                cv2.circle(canvas, tuple(brain.px[g]), 26, RED, 3, cv2.LINE_AA)
-            text(canvas, 'giant fiber fires  ->  startle', (W // 2 + 40, 760), 0.9, RED, 2)
+                cv2.circle(canvas, tuple(brain.px[g]), 26, col, 3, cv2.LINE_AA)
+            text(canvas, 'giant fiber fires  ->  held back: it is what the duck follows' if held
+                 else 'giant fiber fires  ->  startle', (W // 2 + 40, 760), 0.9, col, 2)
         if phases is not None:
             learn_panel(canvas, tr, j, T, phases)
         trace_panel(canvas, tr, j, W // 2 + 40, 840, rows)

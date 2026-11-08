@@ -776,6 +776,7 @@ def loop(args, brain, enc, gf, view, duck, body, camera, steer_dn, pair, trace, 
                        and time.monotonic() - pursuit[1] < PURSUIT_MEMORY_S
                        and abs(zone_az - pursuit[0]) < PURSUIT_GATE_DEG)
             if pursued:
+                note += '  | HELD BACK (pursuit gate)'   # the trace says so; make_video labels it
                 print(f'{t:8.2f}s  ... held back: the looming is the target being followed '
                       f'(zone {zone_az:+.0f} deg, target {pursuit[0]:+.0f} deg)', flush=True)
             elif duck and not args.no_startle:

@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="https://huggingface.co/spaces/HW01/duckophila"><img src="media/hero.gif" alt="Left: a microduck in MuJoCo; right: the fruit-fly brain driving it, every neuron at its real position, lit when it spikes" width="100%"></a>
-  <br><sub><b><a href="https://huggingface.co/spaces/HW01/duckophila">Watch the full video, 2 min 15 s</a></b> (plays on Hugging Face) · <a href="media/duckophila.mp4">download the MP4</a> — a ball thrown at the duck fires the fly's escape neuron (red rings); in a turning striped drum, the fly's motion detectors light up in both optic lobes (blue) and its head neuron steers the duck; a small target on the floor steers it through the fly's object pathway; and, petted while it sees the ball, it follows the ball and not the bar. Everything on the right is the recorded spikes of the real connectome; nothing is animated by hand.</sub>
+  <br><sub><b><a href="https://huggingface.co/spaces/HW01/duckophila">Watch the full video, 3 min 29 s</a></b> (plays on Hugging Face) · <a href="media/duckophila.mp4">download the MP4</a> — a ball thrown at the duck fires the fly's escape neuron (red rings); in a turning striped drum, the fly's motion detectors light up in both optic lobes (blue) and its head neuron steers the duck; a small target on the floor steers it through the fly's object pathway; petted while it sees the ball, it follows the ball and not the bar; and when a person walks off, the fly's object pathway sees their feet and the duck walks after them — the giant fibre still fires as their legs loom, but the flinch is held back (amber rings), since it is what the duck follows. Everything on the right is the recorded spikes of the real connectome; nothing is animated by hand.</sub>
 </p>
 
 Duckophila runs the complete wiring diagram of an adult *Drosophila* brain — FlyWire's
@@ -72,7 +72,9 @@ would be, and its output is read from the neurons the literature says carry it.
 Act 1 throws three balls and one slow hand; act 2 is the walking duck in the turning drum; act 3
 is the ball leading the duck 45° each way; act 4 teaches it — naive, it only looks at the ball and
 the bar; petted four times while it sees the ball, it then follows the ball and stays for the bar
-(played at 3× in the video, with the learned values on screen). The
+(played at 3× in the video, with the learned values on screen). Act 5, only in the video
+(`video/acts.py feet demo/`, on the plank floor), is a person walking off and the duck walking after
+their feet. The
 viewer shows every neuron at its real place in the brain, lit when it spikes, beside the depth
 frame, the camera with its optic flow, and the descending neurons that move the duck. A recording
 replays with `.venv/bin/rerun demo/arena.rrd`.
